@@ -1,0 +1,52 @@
+# Legt Tag und GitHub-Release an, sobald sich die Version in manifest.json ändert.
+# Die Release-Notizen kommen aus dem passenden Abschnitt in CHANGELOG.md.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - custom_components/zeo_sonnen/manifest.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version lesen
+        id: version
+        run: |
+          VERSION=$(jq -r .version custom_components/zeo_sonnen/manifest.json)
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release-Notizen aus CHANGELOG.md
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          awk -v tag="## ${{ steps.version.outputs.tag }}" '
+            $0 == tag {found=1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Siehe Commits." > notes.md; fi
+
+      - name: Release anlegen
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --target "${GITHUB_SHA}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file notes.md
