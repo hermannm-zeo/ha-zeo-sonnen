@@ -47,7 +47,7 @@ Die Karte fragt über den Websocket-Befehl `zeo_sonnen/info` ab, welche Entität
 
 ## Hinweise
 
-- Ein sonnen-Logo ist nicht enthalten. Die Illustration ist selbst gezeichnet.
+- Ein sonnen-Logo ist nicht enthalten. Die Illustration ist selbst gezeichnet. Icon und Logo der Integration sind das ZEO-SOLAR-Logo.
 - `remaining_energy` kommt unverändert aus der API (`RemainingCapacity_Wh`). Während des Vollladezyklus nach einem Modultausch kann der Wert unplausibel sein. Das Portal rechnet die gespeicherte Energie deshalb aus Ladestand × Volllade-Kapazität.
 
 ## Entwicklung

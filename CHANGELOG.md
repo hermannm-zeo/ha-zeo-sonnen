@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.1
+
+### Neu
+- ZEO-Icon und -Logo für Integration und Marketplace (vorläufig, aus dem Logo der Homepage abgeleitet)
+
 ## v0.4.0
 
 Erste ZEO-Version, Fork von zafayar/ha-sonnen-battery v0.3.0 (MIT).

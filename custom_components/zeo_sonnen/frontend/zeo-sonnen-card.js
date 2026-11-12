@@ -3,7 +3,7 @@
  * Datenquelle: zeo_sonnen (lokale JSON-API). Entitäten und Modell kommen über
  * den Websocket-Befehl zeo_sonnen/info, die Entity-IDs sind damit egal.
  */
-const SPC_VERSION = "0.4.0";
+const SPC_VERSION = "0.4.1";
 
 const C = {
   navy: "#0A1535",
