@@ -1,0 +1,273 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "sonnenBatterie verbinden",
+        "description": "Im Dashboard der Batterie unter Software-Integration die JSON-API einschalten und den API-Token kopieren. Für Betriebsart und Notstrompuffer zusätzlich Schreibzugriff aktivieren.",
+        "data": {
+          "host": "Host",
+          "api_token": "API-Token",
+          "model": "Modell"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname der Batterie, z. B. 192.168.1.50",
+          "api_token": "Der Token aus dem Batterie-Dashboard unter Software-Integration",
+          "model": "Bestimmt die Gehäusefarbe im Dashboard. Die Batterie meldet ihr Modell nicht selbst."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Neuer API-Token",
+        "description": "Die Batterie unter {host} hat den API-Token abgelehnt. Bitte den aktuellen Token aus ihrem Dashboard eintragen.",
+        "data": {
+          "api_token": "API-Token"
+        },
+        "data_description": {
+          "api_token": "Der Token aus dem Batterie-Dashboard unter Software-Integration"
+        }
+      },
+      "reconfigure": {
+        "title": "Verbindung ändern",
+        "data": {
+          "host": "Host",
+          "api_token": "API-Token"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname der Batterie, z. B. 192.168.1.50",
+          "api_token": "Der Token aus dem Batterie-Dashboard unter Software-Integration"
+        }
+      },
+      "replace_unit": {
+        "title": "Power Unit getauscht?",
+        "description": "Die Batterie meldet jetzt die Seriennummer {new} statt {old}. Das passiert nach einem Tausch der Power Unit. Neue Seriennummer übernehmen? Entitäten, Entity-IDs und Verlauf bleiben erhalten."
+      }
+    },
+    "error": {
+      "cannot_connect": "Batterie nicht erreichbar. Host prüfen und ob die JSON-API eingeschaltet ist.",
+      "invalid_auth": "Die Batterie hat den API-Token abgelehnt.",
+      "unknown": "Unerwarteter Fehler, siehe Home-Assistant-Log."
+    },
+    "abort": {
+      "already_configured": "Diese Batterie ist bereits eingerichtet.",
+      "reauth_successful": "Token aktualisiert.",
+      "reconfigure_successful": "Verbindung aktualisiert.",
+      "wrong_device": "Das ist eine andere Batterie als die dieses Eintrags.",
+      "unit_replaced": "Seriennummer übernommen, Entitäten bleiben erhalten."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "data": {
+          "scan_interval": "Abfrageintervall",
+          "model": "Modell"
+        },
+        "data_description": {
+          "scan_interval": "Sekunden zwischen zwei Abfragen. Kürzer = genauere Energiezähler.",
+          "model": "Bestimmt die Gehäusefarbe im Dashboard."
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "charging": {
+        "name": "Lädt"
+      },
+      "discharging": {
+        "name": "Entlädt"
+      },
+      "on_grid": {
+        "name": "Netzbetrieb"
+      },
+      "problem": {
+        "name": "Problem"
+      },
+      "discharge_not_allowed": {
+        "name": "Entladung gesperrt"
+      }
+    },
+    "number": {
+      "backup_reserve": {
+        "name": "Notstrompuffer"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Betriebsart",
+        "state": {
+          "manual": "Manuell",
+          "automatic": "Eigenverbrauch",
+          "time_of_use": "Time-of-Use",
+          "optimisation": "Optimierung"
+        }
+      }
+    },
+    "sensor": {
+      "consumption_power": {
+        "name": "Hausverbrauch Leistung"
+      },
+      "production_power": {
+        "name": "PV-Erzeugung Leistung"
+      },
+      "grid_power": {
+        "name": "Netzleistung"
+      },
+      "grid_import_power": {
+        "name": "Netzbezug Leistung"
+      },
+      "grid_export_power": {
+        "name": "Einspeisung Leistung"
+      },
+      "battery_power": {
+        "name": "Batterieleistung"
+      },
+      "battery_charge_power": {
+        "name": "Ladeleistung"
+      },
+      "battery_discharge_power": {
+        "name": "Entladeleistung"
+      },
+      "state_of_charge": {
+        "name": "Ladestand"
+      },
+      "state_of_charge_real": {
+        "name": "Ladestand (real)"
+      },
+      "remaining_energy": {
+        "name": "Restenergie"
+      },
+      "system_status": {
+        "name": "Systemstatus"
+      },
+      "grid_frequency": {
+        "name": "Netzfrequenz"
+      },
+      "ac_voltage": {
+        "name": "AC-Spannung"
+      },
+      "battery_voltage": {
+        "name": "Batteriespannung"
+      },
+      "cycle_count": {
+        "name": "Ladezyklen"
+      },
+      "state_of_health": {
+        "name": "Gesundheitszustand"
+      },
+      "grid_import_energy": {
+        "name": "Netzbezug Energie"
+      },
+      "grid_export_energy": {
+        "name": "Einspeisung Energie"
+      },
+      "battery_charge_energy": {
+        "name": "Ladeenergie"
+      },
+      "battery_discharge_energy": {
+        "name": "Entladeenergie"
+      },
+      "solar_production_energy": {
+        "name": "PV-Erzeugung Energie"
+      },
+      "home_consumption_energy": {
+        "name": "Hausverbrauch Energie"
+      },
+      "meter_kwh_imported": {
+        "name": "Zähler {meter} {channel} Bezug"
+      },
+      "meter_kwh_exported": {
+        "name": "Zähler {meter} {channel} Lieferung"
+      },
+      "full_charge_capacity": {
+        "name": "Volllade-Kapazität"
+      },
+      "status_led": {
+        "name": "Statuslicht",
+        "state": {
+          "pulsing_white": "Weiß pulsierend",
+          "pulsing_green": "Grün pulsierend",
+          "pulsing_orange": "Orange pulsierend",
+          "pulsing_red": "Rot pulsierend",
+          "pulsing_blue": "Blau pulsierend",
+          "pulsing_purple": "Lila pulsierend",
+          "solid_red": "Rot dauerhaft",
+          "solid_blue": "Blau dauerhaft",
+          "solid_purple": "Lila dauerhaft",
+          "solid_gradient": "Farbverlauf dauerhaft",
+          "blinking_red": "Rot blinkend",
+          "blinking_green": "Grün blinkend",
+          "blinking_blue": "Blau blinkend",
+          "blinking_purple": "Lila blinkend",
+          "blinking_gradient": "Farbverlauf blinkend",
+          "rotating_gradient": "Farbverlauf rotierend",
+          "off": "Aus"
+        }
+      },
+      "shutdown_reason": {
+        "name": "Abschaltgrund"
+      },
+      "last_full_charge": {
+        "name": "Letzte Vollladung"
+      },
+      "installed_capacity": {
+        "name": "Installierte Kapazität"
+      }
+    }
+  },
+  "exceptions": {
+    "write_failed": {
+      "message": "Die Batterie hat die Änderung nicht angenommen. Ist Schreibzugriff für den API-Token aktiv?"
+    },
+    "setpoint_failed": {
+      "message": "Die Batterie hat den Leistungssollwert nicht angenommen. Sie muss in der Betriebsart Manuell sein und Schreibzugriff muss aktiv sein."
+    },
+    "entry_not_found": {
+      "message": "Diese sonnenBatterie ist nicht eingerichtet."
+    },
+    "entry_not_loaded": {
+      "message": "Diese sonnenBatterie ist gerade nicht geladen."
+    },
+    "auth_failed": {
+      "message": "Die Batterie hat den API-Token abgelehnt."
+    },
+    "update_failed": {
+      "message": "Daten der Batterie konnten nicht gelesen werden: {error}"
+    }
+  },
+  "selector": {
+    "direction": {
+      "options": {
+        "charge": "Laden",
+        "discharge": "Entladen"
+      }
+    },
+    "model": {
+      "options": {
+        "performance": "sonnenBatterie Performance (schwarz)",
+        "eco": "sonnenBatterie 10 / eco (weiß)",
+        "hybrid": "sonnenBatterie hybrid (grau)"
+      }
+    }
+  },
+  "services": {
+    "set_power": {
+      "name": "Batterieleistung setzen",
+      "description": "Lädt oder entlädt die Batterie mit fester Leistung. Nur in der Betriebsart Manuell. 0 W beendet.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Batterie",
+          "description": "Die zu steuernde sonnenBatterie."
+        },
+        "direction": {
+          "name": "Richtung",
+          "description": "In die Batterie laden oder aus ihr entladen."
+        },
+        "power": {
+          "name": "Leistung",
+          "description": "Leistung in Watt. Die Batterie begrenzt auf das, was ihr Wechselrichter kann."
+        }
+      }
+    }
+  }
+}
