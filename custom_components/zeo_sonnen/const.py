@@ -34,10 +34,35 @@ CONF_MODEL: Final = "model"
 # dashboard card draws.
 MODELS: Final = {
     "performance": {"label": "sonnenBatterie Performance", "color": "black"},
+    "performance_plus": {"label": "sonnenBatterie Performance+", "color": "black"},
     "eco": {"label": "sonnenBatterie 10 / eco", "color": "white"},
     "hybrid": {"label": "sonnenBatterie hybrid", "color": "grey"},
 }
 DEFAULT_MODEL: Final = "performance"
+
+# Backup unit (sonnenProtect) as chosen by the installer.
+CONF_PROTECT: Final = "protect"
+PROTECTS: Final = ("none", "protect_4000", "protect_8000")
+DEFAULT_PROTECT: Final = "none"
+
+# Combinations that have backup power. Only these get the backup reserve
+# (Notstrompuffer) in the dashboard. The Performance+ has it built in.
+BACKUP_COMBOS: Final = {
+    ("performance", "protect_8000"),
+    ("performance_plus", "none"),
+    ("eco", "protect_4000"),
+}
+
+
+def protect_fits(model: str, protect: str) -> bool:
+    """A Protect unit only fits the model it is made for."""
+    return protect == "none" or (model, protect) in BACKUP_COMBOS
+
+
+def has_backup(model: str, protect: str) -> bool:
+    """True if this model/Protect combination provides backup power."""
+    return (model, protect) in BACKUP_COMBOS
+
 
 # Frontend shipped with the integration
 FRONTEND_URL_BASE: Final = "/zeo_sonnen_static"

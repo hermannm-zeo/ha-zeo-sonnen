@@ -14,7 +14,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.zeo_sonnen.api import SonnenAuthError, SonnenConnectionError
-from custom_components.zeo_sonnen.const import CONF_MODEL, DOMAIN
+from custom_components.zeo_sonnen.const import CONF_MODEL, CONF_PROTECT, DOMAIN
 
 from .conftest import HOST, SERIAL, TOKEN
 
@@ -29,7 +29,12 @@ async def test_user_flow(hass: HomeAssistant, mock_api: MagicMock) -> None:
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "sonnenBatterie Performance"
-    assert result["data"] == {CONF_HOST: HOST, CONF_API_TOKEN: TOKEN, CONF_MODEL: "performance"}
+    assert result["data"] == {
+        CONF_HOST: HOST,
+        CONF_API_TOKEN: TOKEN,
+        CONF_MODEL: "performance",
+        CONF_PROTECT: "none",
+    }
     assert result["result"].unique_id == SERIAL
 
 
@@ -178,7 +183,11 @@ async def test_options_flow(hass: HomeAssistant, init_integration: MockConfigEnt
     result = await hass.config_entries.options.async_configure(result["flow_id"], {CONF_SCAN_INTERVAL: 30})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
-    assert init_integration.options == {CONF_SCAN_INTERVAL: 30, CONF_MODEL: "performance"}
+    assert init_integration.options == {
+        CONF_SCAN_INTERVAL: 30,
+        CONF_MODEL: "performance",
+        CONF_PROTECT: "none",
+    }
     assert init_integration.runtime_data.update_interval.total_seconds() == 30
 
 
@@ -191,3 +200,36 @@ async def test_options_flow_model(hass: HomeAssistant, init_integration: MockCon
     assert init_integration.runtime_data.model_key == "eco"
     device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, SERIAL)})
     assert device.model == "sonnenBatterie 10 / eco"
+
+
+async def test_user_flow_protect_mismatch(hass: HomeAssistant, mock_api: MagicMock) -> None:
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_HOST: "192.168.1.50", CONF_API_TOKEN: TOKEN, CONF_MODEL: "eco", CONF_PROTECT: "protect_8000"},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_PROTECT: "protect_mismatch"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_HOST: "192.168.1.50", CONF_API_TOKEN: TOKEN, CONF_MODEL: "eco", CONF_PROTECT: "protect_4000"},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_PROTECT] == "protect_4000"
+
+
+async def test_options_flow_protect(hass: HomeAssistant, init_integration: MockConfigEntry) -> None:
+    assert not init_integration.runtime_data.has_backup
+    result = await hass.config_entries.options.async_init(init_integration.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_SCAN_INTERVAL: 10, CONF_MODEL: "performance", CONF_PROTECT: "protect_4000"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_PROTECT: "protect_mismatch"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_SCAN_INTERVAL: 10, CONF_MODEL: "performance", CONF_PROTECT: "protect_8000"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert init_integration.runtime_data.protect_key == "protect_8000"
+    assert init_integration.runtime_data.has_backup

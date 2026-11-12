@@ -32,6 +32,8 @@ async def test_ws_info(
     result = msg["result"]
     assert result["model"] == "performance"
     assert result["color"] == "black"
+    assert result["protect"] == "none"
+    assert result["backup"] is False
     entities = result["entities"]
     assert entities["soc"] == "sensor.sonnenbatterie_state_of_charge"
     assert entities["pv_power"] == "sensor.sonnenbatterie_solar_production_power"

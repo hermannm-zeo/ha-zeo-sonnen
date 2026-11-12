@@ -152,6 +152,7 @@ class SonnenPortalCard extends HTMLElement {
     this._userEntities = config.entities || null;
     this._userModel = !!config.model;
     this._userColor = !!config.color;
+    this._userBackup = typeof config.backup === "boolean";
     this._page = this._page || this._cfg.default_page;
     this._slide = this._slide || 0;
     this._day = this._day || dayStart(new Date());
@@ -176,6 +177,7 @@ class SonnenPortalCard extends HTMLElement {
       this._cfg.entities = { ...this._cfg.entities, ...info.entities, ...(this._userEntities || {}) };
       if (!this._userModel) this._cfg.model = info.model_label;
       if (!this._userColor) this._cfg.color = info.color;
+      if (!this._userBackup) this._cfg.backup = info.backup === true;
       this._built = false;
       this._build();
       this._update();
@@ -185,6 +187,12 @@ class SonnenPortalCard extends HTMLElement {
     } finally {
       this._infoLoading = false;
     }
+  }
+
+  // Notstrompuffer nur bei Notstrom: Performance + Protect 8000, Performance+,
+  // sonnenBatterie 10 + Protect 4000 (Regel in const.py, kommt über zeo_sonnen/info)
+  _hasBackup() {
+    return this._cfg.backup === true;
   }
 
   _housing() {
@@ -475,7 +483,7 @@ class SonnenPortalCard extends HTMLElement {
           <dl>
             <dt>Ladestand</dt><dd class="big" id="b-soc"></dd>
             <dt>Ladezyklen</dt><dd id="b-cyc"></dd>
-            <dt>Min. Notstrompuffer</dt><dd id="b-res"></dd>
+            ${this._hasBackup() ? `<dt>Min. Notstrompuffer</dt><dd id="b-res"></dd>` : ""}
             <dt>Gespeicherte Energie</dt><dd id="b-rem"></dd>
           </dl>
         </div>
@@ -484,10 +492,10 @@ class SonnenPortalCard extends HTMLElement {
     </div>
     <h1 class="sub">Einstellungen</h1>
     <div class="card settings">
-      <div class="srow">
+      ${this._hasBackup() ? `<div class="srow">
         <div><b>Notstrompuffer</b><span>Reserve, die für einen Stromausfall in der Batterie bleibt.</span></div>
         <div class="ctl"><input type="range" min="0" max="100" step="1" id="c-res"><span id="c-res-v"></span></div>
-      </div>
+      </div>` : ""}
       <div class="srow">
         <div><b>Betriebsart</b><span>Steuerung des Lade- und Entladeverhaltens.</span></div>
         <div class="ctl"><select id="c-mode"></select></div>
@@ -497,8 +505,8 @@ class SonnenPortalCard extends HTMLElement {
   _bindBattery() {
     const r = this.shadowRoot;
     const res = r.getElementById("c-res");
-    res.addEventListener("input", () => (r.getElementById("c-res-v").textContent = `${res.value} %`));
-    res.addEventListener("change", () => {
+    if (res) res.addEventListener("input", () => (r.getElementById("c-res-v").textContent = `${res.value} %`));
+    if (res) res.addEventListener("change", () => {
       this._hass.callService("number", "set_value", { entity_id: this._cfg.entities.backup_reserve, value: Number(res.value) });
     });
     const sel = r.getElementById("c-mode");

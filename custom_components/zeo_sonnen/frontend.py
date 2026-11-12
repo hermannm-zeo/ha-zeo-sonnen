@@ -4,7 +4,7 @@
   and loaded on every dashboard, so it needs no manual resource.
 * Every config entry gets its own sidebar panel that shows the card full page.
 * ``zeo_sonnen/info`` tells the card which entities belong to an entry and
-  which model (housing colour) the installer picked, so entity IDs don't matter.
+  which model (housing colour) and backup unit the installer picked, so entity IDs don't matter.
 """
 
 from __future__ import annotations
@@ -148,6 +148,8 @@ def ws_info(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg
             "model": model_key,
             "model_label": model["label"],
             "color": model["color"],
+            "protect": coordinator.protect_key,
+            "backup": coordinator.has_backup,
             "serial": coordinator.serial,
             "entities": entity_map(hass, entry),
         },

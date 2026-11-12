@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Neu
+- Modell **sonnenBatterie Performance+**
+- Auswahl **Notstrom (sonnenProtect)** bei Einrichtung und in den Optionen: Keins, Protect 4000, Protect 8000. Unpassende Kombinationen werden abgelehnt
+- `zeo_sonnen/info` liefert `protect` und `backup`
+
+### Geändert
+- Notstrompuffer (Einstellung und Anzeige „Min. Notstrompuffer“) erscheint im Portal nur noch bei Performance mit Protect 8000, Performance+ und sonnenBatterie 10 mit Protect 4000. Bestehende Einträge stehen auf „Keins“ und müssen bei vorhandenem Protect unter **Konfigurieren** umgestellt werden
+
 ## v0.4.1
 
 ### Neu

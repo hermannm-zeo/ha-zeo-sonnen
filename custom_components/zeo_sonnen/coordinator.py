@@ -16,7 +16,16 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SonnenApi, SonnenAuthError, SonnenError
-from .const import CONF_MODEL, DEFAULT_MODEL, DOMAIN, MANUFACTURER, MODELS
+from .const import (
+    CONF_MODEL,
+    CONF_PROTECT,
+    DEFAULT_MODEL,
+    DEFAULT_PROTECT,
+    DOMAIN,
+    MANUFACTURER,
+    MODELS,
+    has_backup,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +91,16 @@ class SonnenCoordinator(DataUpdateCoordinator[SonnenData]):
         """Model chosen by the installer (options override the setup value)."""
         entry = self.config_entry
         return str(entry.options.get(CONF_MODEL, entry.data.get(CONF_MODEL, DEFAULT_MODEL)))
+
+    @property
+    def protect_key(self) -> str:
+        """sonnenProtect chosen by the installer (options override the setup value)."""
+        entry = self.config_entry
+        return str(entry.options.get(CONF_PROTECT, entry.data.get(CONF_PROTECT, DEFAULT_PROTECT)))
+
+    @property
+    def has_backup(self) -> bool:
+        return has_backup(self.model_key, self.protect_key)
 
     async def _async_update_data(self) -> SonnenData:
         try:

@@ -19,17 +19,31 @@ Basiert auf [zafayar/ha-sonnen-battery](https://github.com/zafayar/ha-sonnen-bat
 | Auswahl | Gehäuse |
 |---|---|
 | sonnenBatterie Performance | schwarz |
+| sonnenBatterie Performance+ | schwarz |
 | sonnenBatterie 10 / eco | weiß |
 | sonnenBatterie hybrid | grau |
 
 Die API meldet das Modell nicht, deshalb muss es bei der Einrichtung gewählt werden. Ändern lässt es sich später unter **Konfigurieren** der Integration.
+
+### Notstrom (sonnenProtect)
+
+Den **Notstrompuffer** zeigt das Portal nur bei Anlagen mit Notstrom an:
+
+| Modell | Notstrom |
+|---|---|
+| Performance | nur mit sonnenProtect 8000 |
+| Performance+ | integriert, Auswahl „Keins“ |
+| sonnenBatterie 10 / eco | nur mit sonnenProtect 4000 |
+| hybrid | nein |
+
+Andere Kombinationen lehnt die Einrichtung ab. Die Entität `number.*_backup_reserve` bleibt in jedem Fall erhalten.
 
 ## Installation
 
 1. Im Marketplace (HA 2026.11+) bzw. in HACS dieses Repository als benutzerdefiniertes Repository hinzufügen, Kategorie **Integration**.
 2. **ZEO sonnenBatterie** installieren und Home Assistant neu starten.
 3. Im Batterie-Dashboard unter **Software-Integration** die JSON-API einschalten und den Token kopieren. Für Notstrompuffer und Betriebsart zusätzlich Schreibzugriff aktivieren.
-4. **Einstellungen → Geräte & Dienste → Integration hinzufügen → ZEO sonnenBatterie**: Host, Token und Modell eintragen.
+4. **Einstellungen → Geräte & Dienste → Integration hinzufügen → ZEO sonnenBatterie**: Host, Token, Modell und sonnenProtect eintragen.
 
 Der Seitenleisten-Eintrag **sonnenBatterie** erscheint danach automatisch.
 
@@ -41,6 +55,7 @@ type: custom:zeo-sonnen-card
 entry_id: 01ABC...
 # optional:
 default_page: flow   # overview | flow | analysis | battery
+backup: true         # Notstrompuffer erzwingen (true) oder ausblenden (false), sonst aus der Einrichtung
 ```
 
 Die Karte fragt über den Websocket-Befehl `zeo_sonnen/info` ab, welche Entitäten zur Batterie gehören. Entity-IDs dürfen deshalb beliebig umbenannt werden.

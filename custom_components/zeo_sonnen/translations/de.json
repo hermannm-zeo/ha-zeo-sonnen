@@ -7,12 +7,14 @@
         "data": {
           "host": "Host",
           "api_token": "API-Token",
-          "model": "Modell"
+          "model": "Modell",
+          "protect": "Notstrom (sonnenProtect)"
         },
         "data_description": {
           "host": "IP-Adresse oder Hostname der Batterie, z. B. 192.168.1.50",
           "api_token": "Der Token aus dem Batterie-Dashboard unter Software-Integration",
-          "model": "Bestimmt die Gehäusefarbe im Dashboard. Die Batterie meldet ihr Modell nicht selbst."
+          "model": "Bestimmt die Gehäusefarbe im Dashboard. Die Batterie meldet ihr Modell nicht selbst.",
+          "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an."
         }
       },
       "reauth_confirm": {
@@ -44,7 +46,8 @@
     "error": {
       "cannot_connect": "Batterie nicht erreichbar. Host prüfen und ob die JSON-API eingeschaltet ist.",
       "invalid_auth": "Die Batterie hat den API-Token abgelehnt.",
-      "unknown": "Unerwarteter Fehler, siehe Home-Assistant-Log."
+      "unknown": "Unerwarteter Fehler, siehe Home-Assistant-Log.",
+      "protect_mismatch": "Dieses Protect passt nicht zum Modell. Protect 8000 gehört zur Performance, Protect 4000 zur sonnenBatterie 10. Die Performance+ hat Notstrom integriert, die hybrid hat keinen."
     },
     "abort": {
       "already_configured": "Diese Batterie ist bereits eingerichtet.",
@@ -60,13 +63,18 @@
         "title": "Einstellungen",
         "data": {
           "scan_interval": "Abfrageintervall",
-          "model": "Modell"
+          "model": "Modell",
+          "protect": "Notstrom (sonnenProtect)"
         },
         "data_description": {
           "scan_interval": "Sekunden zwischen zwei Abfragen. Kürzer = genauere Energiezähler.",
-          "model": "Bestimmt die Gehäusefarbe im Dashboard."
+          "model": "Bestimmt die Gehäusefarbe im Dashboard.",
+          "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an."
         }
       }
+    },
+    "error": {
+      "protect_mismatch": "Dieses Protect passt nicht zum Modell. Protect 8000 gehört zur Performance, Protect 4000 zur sonnenBatterie 10. Die Performance+ hat Notstrom integriert, die hybrid hat keinen."
     }
   },
   "entity": {
@@ -245,8 +253,16 @@
     "model": {
       "options": {
         "performance": "sonnenBatterie Performance (schwarz)",
+        "performance_plus": "sonnenBatterie Performance+ (schwarz)",
         "eco": "sonnenBatterie 10 / eco (weiß)",
         "hybrid": "sonnenBatterie hybrid (grau)"
+      }
+    },
+    "protect": {
+      "options": {
+        "none": "Keins",
+        "protect_4000": "sonnenProtect 4000",
+        "protect_8000": "sonnenProtect 8000"
       }
     }
   },

@@ -7,12 +7,14 @@
         "data": {
           "host": "Host",
           "api_token": "API token",
-          "model": "Model"
+          "model": "Model",
+          "protect": "Backup unit (sonnenProtect)"
         },
         "data_description": {
           "host": "IP address or host name of the battery, e.g. 192.168.1.50",
           "api_token": "The token shown under Software-Integration in the battery's dashboard",
-          "model": "Determines the housing colour shown in the dashboard. The battery does not report its model."
+          "model": "Determines the housing colour shown in the dashboard. The battery does not report its model.",
+          "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve."
         }
       },
       "reauth_confirm": {
@@ -44,7 +46,8 @@
     "error": {
       "cannot_connect": "Couldn't reach the battery. Check the host and that the JSON API is turned on.",
       "invalid_auth": "The battery rejected the API token.",
-      "unknown": "Unexpected error. See the Home Assistant log."
+      "unknown": "Unexpected error. See the Home Assistant log.",
+      "protect_mismatch": "This Protect does not fit the model. Protect 8000 goes with the Performance, Protect 4000 with the sonnenBatterie 10. The Performance+ has backup built in, hybrid has none."
     },
     "abort": {
       "already_configured": "This battery is already set up.",
@@ -60,13 +63,18 @@
         "title": "Settings",
         "data": {
           "scan_interval": "Update interval",
-          "model": "Model"
+          "model": "Model",
+          "protect": "Backup unit (sonnenProtect)"
         },
         "data_description": {
           "scan_interval": "Seconds between readings. Shorter intervals make the energy counters more accurate.",
-          "model": "Determines the housing colour shown in the dashboard."
+          "model": "Determines the housing colour shown in the dashboard.",
+          "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve."
         }
       }
+    },
+    "error": {
+      "protect_mismatch": "This Protect does not fit the model. Protect 8000 goes with the Performance, Protect 4000 with the sonnenBatterie 10. The Performance+ has backup built in, hybrid has none."
     }
   },
   "entity": {
@@ -245,8 +253,16 @@
     "model": {
       "options": {
         "performance": "sonnenBatterie Performance (black)",
+        "performance_plus": "sonnenBatterie Performance+ (black)",
         "eco": "sonnenBatterie 10 / eco (white)",
         "hybrid": "sonnenBatterie hybrid (grey)"
+      }
+    },
+    "protect": {
+      "options": {
+        "none": "None",
+        "protect_4000": "sonnenProtect 4000",
+        "protect_8000": "sonnenProtect 8000"
       }
     }
   },
