@@ -3,12 +3,21 @@
 ## Unreleased
 
 ### Neu
+- **Zwei Dashboards zur Auswahl** bei Einrichtung und unter **Konfigurieren**: „sonnenBatterie Modern“ (Hausansicht mit Energiefluss, Standard), „sonnenBatterie Classic“ (bisheriges Portal) oder beide. Bestehende Einträge behalten Classic
+- **Hauskarte** `custom:zeo-sonnen-3d-card` (Modern): Hausbild mit Tag/Nacht-Wechsel nach Sonnenstand, runde Wertanzeigen, animierte Energieflüsse (Tempo nach Leistung), Jetzt/Heute, Autarkie und Eigenverbrauch, Batteriekarte mit Restlaufzeit, Tagesverlauf und Auswertung Tag/Woche/Monat/Jahr, Betriebsart und Notstrompuffer mit Bestätigung, heller und dunkler Modus
+- Hauskarte optional mit Wallbox und Wärmepumpe (nur wenn in der Karte eingetragen)
 - Modell **sonnenBatterie Performance+**
 - Auswahl **Notstrom (sonnenProtect)** bei Einrichtung und in den Optionen: Keins, Protect 4000, Protect 8000. Unpassende Kombinationen werden abgelehnt
 - `zeo_sonnen/info` liefert `protect` und `backup`
 
 ### Geändert
+- **Cache-Buster**: Die Kartendateien laden mit Version und Prüfsumme der Frontend-Dateien. Nach einem Update zeigt der Browser sofort die neuen Karten (vorher hielten Browser und Service Worker alte Stände)
+- Seitenleisten-Einträge heißen „sonnenBatterie Classic“ bzw. „sonnenBatterie Modern“
+- `zeo_sonnen/info` liefert zusätzlich Lade- und Entladeenergie der Batterie
 - Notstrompuffer (Einstellung und Anzeige „Min. Notstrompuffer“) erscheint im Portal nur noch bei Performance mit Protect 8000, Performance+ und sonnenBatterie 10 mit Protect 4000. Bestehende Einträge stehen auf „Keins“ und müssen bei vorhandenem Protect unter **Konfigurieren** umgestellt werden
+
+### Behoben
+- Auswertung im Classic-Portal: Rückkehr zum aktuellen Tag funktioniert wieder, Sommer-/Winterzeit überspringt keinen Tag, „›“ ist am heutigen Tag gesperrt
 
 ## v0.4.1
 

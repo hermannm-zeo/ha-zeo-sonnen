@@ -8,13 +8,15 @@
           "host": "Host",
           "api_token": "API-Token",
           "model": "Modell",
-          "protect": "Notstrom (sonnenProtect)"
+          "protect": "Notstrom (sonnenProtect)",
+          "dashboard": "Dashboard"
         },
         "data_description": {
           "host": "IP-Adresse oder Hostname der Batterie, z. B. 192.168.1.50",
           "api_token": "Der Token aus dem Batterie-Dashboard unter Software-Integration",
           "model": "Bestimmt die Gehäusefarbe im Dashboard. Die Batterie meldet ihr Modell nicht selbst.",
-          "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an."
+          "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an.",
+          "dashboard": "Welche Ansicht in der Seitenleiste erscheint. Classic = Portal im Stil von my.sonnen, Modern = Hausansicht mit Energiefluss. Später unter Konfigurieren änderbar."
         }
       },
       "reauth_confirm": {
@@ -64,12 +66,14 @@
         "data": {
           "scan_interval": "Abfrageintervall",
           "model": "Modell",
-          "protect": "Notstrom (sonnenProtect)"
+          "protect": "Notstrom (sonnenProtect)",
+          "dashboard": "Dashboard"
         },
         "data_description": {
           "scan_interval": "Sekunden zwischen zwei Abfragen. Kürzer = genauere Energiezähler.",
           "model": "Bestimmt die Gehäusefarbe im Dashboard.",
-          "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an."
+          "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an.",
+          "dashboard": "Welche Ansicht in der Seitenleiste erscheint. Classic = Portal im Stil von my.sonnen, Modern = Hausansicht mit Energiefluss."
         }
       }
     },
@@ -263,6 +267,13 @@
         "none": "Keins",
         "protect_4000": "sonnenProtect 4000",
         "protect_8000": "sonnenProtect 8000"
+      }
+    },
+    "dashboard": {
+      "options": {
+        "modern": "sonnenBatterie Modern (Hausansicht mit Energiefluss)",
+        "classic": "sonnenBatterie Classic (Portal im Stil von my.sonnen)",
+        "both": "Beide"
       }
     }
   },

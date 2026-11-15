@@ -32,13 +32,17 @@ from homeassistant.helpers.selector import (
 
 from .api import SonnenApi, SonnenAuthError, SonnenError, normalise_host
 from .const import (
+    CONF_DASHBOARD,
     CONF_KEY_SERIAL,
     CONF_MODEL,
     CONF_PROTECT,
+    DASHBOARDS,
+    DEFAULT_DASHBOARD,
     DEFAULT_MODEL,
     DEFAULT_PROTECT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    LEGACY_DASHBOARD,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
     MODELS,
@@ -55,6 +59,9 @@ _MODEL_SELECTOR = SelectSelector(
 )
 _PROTECT_SELECTOR = SelectSelector(
     SelectSelectorConfig(options=list(PROTECTS), mode=SelectSelectorMode.LIST, translation_key="protect")
+)
+_DASHBOARD_SELECTOR = SelectSelector(
+    SelectSelectorConfig(options=list(DASHBOARDS), mode=SelectSelectorMode.LIST, translation_key="dashboard")
 )
 
 
@@ -80,6 +87,9 @@ def _setup_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_PROTECT, default=defaults.get(CONF_PROTECT, DEFAULT_PROTECT)
             ): _PROTECT_SELECTOR,
+            vol.Required(
+                CONF_DASHBOARD, default=defaults.get(CONF_DASHBOARD, DEFAULT_DASHBOARD)
+            ): _DASHBOARD_SELECTOR,
         }
     )
 
@@ -135,6 +145,7 @@ class SonnenConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_API_TOKEN: user_input[CONF_API_TOKEN],
                         CONF_MODEL: user_input[CONF_MODEL],
                         CONF_PROTECT: user_input[CONF_PROTECT],
+                        CONF_DASHBOARD: user_input[CONF_DASHBOARD],
                     },
                 )
         return self.async_show_form(
@@ -213,15 +224,18 @@ class SonnenOptionsFlow(OptionsFlow):
                         CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
                         CONF_MODEL: user_input[CONF_MODEL],
                         CONF_PROTECT: user_input[CONF_PROTECT],
+                        CONF_DASHBOARD: user_input[CONF_DASHBOARD],
                     }
                 )
         entry = self.config_entry
         current = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         model = entry.options.get(CONF_MODEL, entry.data.get(CONF_MODEL, DEFAULT_MODEL))
         protect = entry.options.get(CONF_PROTECT, entry.data.get(CONF_PROTECT, DEFAULT_PROTECT))
+        dashboard = entry.options.get(CONF_DASHBOARD, entry.data.get(CONF_DASHBOARD, LEGACY_DASHBOARD))
         if user_input is not None:
             current = user_input[CONF_SCAN_INTERVAL]
             model, protect = user_input[CONF_MODEL], user_input[CONF_PROTECT]
+            dashboard = user_input[CONF_DASHBOARD]
         return self.async_show_form(
             step_id="init",
             errors=errors,
@@ -229,6 +243,7 @@ class SonnenOptionsFlow(OptionsFlow):
                 {
                     vol.Required(CONF_MODEL, default=model): _MODEL_SELECTOR,
                     vol.Required(CONF_PROTECT, default=protect): _PROTECT_SELECTOR,
+                    vol.Required(CONF_DASHBOARD, default=dashboard): _DASHBOARD_SELECTOR,
                     vol.Required(CONF_SCAN_INTERVAL, default=current): NumberSelector(
                         NumberSelectorConfig(
                             min=MIN_SCAN_INTERVAL,

@@ -8,13 +8,15 @@
           "host": "Host",
           "api_token": "API token",
           "model": "Model",
-          "protect": "Backup unit (sonnenProtect)"
+          "protect": "Backup unit (sonnenProtect)",
+          "dashboard": "Dashboard"
         },
         "data_description": {
           "host": "IP address or host name of the battery, e.g. 192.168.1.50",
           "api_token": "The token shown under Software-Integration in the battery's dashboard",
           "model": "Determines the housing colour shown in the dashboard. The battery does not report its model.",
-          "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve."
+          "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve.",
+          "dashboard": "Which view appears in the sidebar. Classic = portal in the style of my.sonnen, Modern = house view with energy flow. Can be changed later under Configure."
         }
       },
       "reauth_confirm": {
@@ -64,12 +66,14 @@
         "data": {
           "scan_interval": "Update interval",
           "model": "Model",
-          "protect": "Backup unit (sonnenProtect)"
+          "protect": "Backup unit (sonnenProtect)",
+          "dashboard": "Dashboard"
         },
         "data_description": {
           "scan_interval": "Seconds between readings. Shorter intervals make the energy counters more accurate.",
           "model": "Determines the housing colour shown in the dashboard.",
-          "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve."
+          "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve.",
+          "dashboard": "Which view appears in the sidebar. Classic = portal in the style of my.sonnen, Modern = house view with energy flow."
         }
       }
     },
@@ -263,6 +267,13 @@
         "none": "None",
         "protect_4000": "sonnenProtect 4000",
         "protect_8000": "sonnenProtect 8000"
+      }
+    },
+    "dashboard": {
+      "options": {
+        "modern": "sonnenBatterie Modern (house view with energy flow)",
+        "classic": "sonnenBatterie Classic (portal in the style of my.sonnen)",
+        "both": "Both"
       }
     }
   },

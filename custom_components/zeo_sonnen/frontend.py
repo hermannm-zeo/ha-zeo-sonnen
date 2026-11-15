@@ -2,13 +2,16 @@
 
 * The card (``custom:zeo-sonnen-card``) is served from the integration folder
   and loaded on every dashboard, so it needs no manual resource.
-* Every config entry gets its own sidebar panel that shows the card full page.
+* Every config entry gets one or two sidebar panels: the classic portal
+  (``zeo-sonnen-card``) and/or the modern house view (``zeo-sonnen-3d-card``),
+  as picked during setup or in the options.
 * ``zeo_sonnen/info`` tells the card which entities belong to an entry and
   which model (housing colour) and backup unit the installer picked, so entity IDs don't matter.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -21,12 +24,15 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CARD_FILENAME,
+    CONF_DASHBOARD,
     DEFAULT_MODEL,
     DOMAIN,
     FRONTEND_URL_BASE,
+    LEGACY_DASHBOARD,
     MODELS,
     PANEL_ELEMENT,
-    PANEL_ICON,
+    PANEL_ICONS,
+    PANEL_TITLES,
 )
 from .coordinator import SonnenConfigEntry
 from .schema import vol
@@ -57,13 +63,24 @@ CARD_KEYS: dict[str, str] = {
     "home_consumption_energy": "consumption_energy",
     "grid_import_energy": "grid_import_energy",
     "grid_export_energy": "grid_export_energy",
+    "battery_charge_energy": "charge_energy",
+    "battery_discharge_energy": "discharge_energy",
 }
 
 
 def _version() -> str:
-    # Cache buster: changes with every release of the integration.
-    path = Path(__file__).parent / "manifest.json"
-    return str(json.loads(path.read_text(encoding="utf-8")).get("version", "0"))
+    """Cache buster: release version plus a hash of the frontend files.
+
+    The static path sends no cache headers and the HA service worker keeps its
+    own copy, so the URL itself has to change whenever a file changes.
+    """
+    base = Path(__file__).parent
+    version = str(json.loads((base / "manifest.json").read_text(encoding="utf-8")).get("version", "0"))
+    digest = hashlib.sha1(usedforsecurity=False)
+    for path in sorted((base / "frontend").glob("*.js")):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return f"{version}-{digest.hexdigest()[:8]}"
 
 
 async def async_register_frontend(hass: HomeAssistant) -> None:
@@ -85,27 +102,38 @@ def card_url(version: str) -> str:
     return f"{FRONTEND_URL_BASE}/{CARD_FILENAME}?v={version}"
 
 
-def panel_path(entry: SonnenConfigEntry) -> str:
-    return f"zeo-sonnen-{entry.entry_id[-6:].lower()}"
+def panel_path(entry: SonnenConfigEntry, style: str = "classic") -> str:
+    suffix = entry.entry_id[-6:].lower()
+    return f"zeo-sonnen-{suffix}" if style == "classic" else f"zeo-sonnen-{style}-{suffix}"
+
+
+def panel_styles(entry: SonnenConfigEntry) -> list[str]:
+    """Dashboard styles this entry shows in the sidebar."""
+    choice = entry.options.get(CONF_DASHBOARD, entry.data.get(CONF_DASHBOARD, LEGACY_DASHBOARD))
+    if choice == "both":
+        return ["modern", "classic"]
+    return [choice] if choice in PANEL_TITLES else [LEGACY_DASHBOARD]
 
 
 async def async_register_panel(hass: HomeAssistant, entry: SonnenConfigEntry) -> None:
     version = hass.data.get(f"{DOMAIN}_version", "0")
-    await panel_custom.async_register_panel(
-        hass,
-        webcomponent_name=PANEL_ELEMENT,
-        frontend_url_path=panel_path(entry),
-        sidebar_title="sonnenBatterie",
-        sidebar_icon=PANEL_ICON,
-        module_url=card_url(version),
-        config={"entry_id": entry.entry_id},
-        require_admin=False,
-    )
+    for style in panel_styles(entry):
+        await panel_custom.async_register_panel(
+            hass,
+            webcomponent_name=PANEL_ELEMENT,
+            frontend_url_path=panel_path(entry, style),
+            sidebar_title=PANEL_TITLES[style],
+            sidebar_icon=PANEL_ICONS[style],
+            module_url=card_url(version),
+            config={"entry_id": entry.entry_id, "style": style},
+            require_admin=False,
+        )
 
 
 @callback
 def async_remove_panel(hass: HomeAssistant, entry: SonnenConfigEntry) -> None:
-    frontend.async_remove_panel(hass, panel_path(entry), warn_if_unknown=False)
+    for style in PANEL_TITLES:
+        frontend.async_remove_panel(hass, panel_path(entry, style), warn_if_unknown=False)
 
 
 def entity_map(hass: HomeAssistant, entry: SonnenConfigEntry) -> dict[str, str]:

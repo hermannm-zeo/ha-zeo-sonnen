@@ -69,3 +69,13 @@ FRONTEND_URL_BASE: Final = "/zeo_sonnen_static"
 CARD_FILENAME: Final = "zeo-sonnen-card.js"
 PANEL_ELEMENT: Final = "zeo-sonnen-panel"
 PANEL_ICON: Final = "mdi:battery-charging-high"
+
+# Dashboard style(s) the integration adds to the sidebar.
+# classic = portal in the style of my.sonnen, modern = house view with energy flow.
+CONF_DASHBOARD: Final = "dashboard"
+DASHBOARDS: Final = ("modern", "classic", "both")
+DEFAULT_DASHBOARD: Final = "modern"
+# Entries created before the choice existed keep the classic portal.
+LEGACY_DASHBOARD: Final = "classic"
+PANEL_TITLES: Final = {"classic": "sonnenBatterie Classic", "modern": "sonnenBatterie Modern"}
+PANEL_ICONS: Final = {"classic": PANEL_ICON, "modern": "mdi:home-battery"}

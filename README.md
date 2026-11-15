@@ -9,10 +9,20 @@ Basiert auf [zafayar/ha-sonnen-battery](https://github.com/zafayar/ha-sonnen-bat
 | Teil | Beschreibung |
 |---|---|
 | Entitäten | Leistung, Energiezähler (für das Energie-Dashboard), Ladestand, Zyklen, Kapazität, Systemstatus, Statuslicht, Notstrompuffer, Betriebsart |
-| Seitenleiste | Eigener Eintrag **sonnenBatterie** je Batterie mit dem Kundenportal: Übersicht, Energiefluss live, Auswertung, sonnenBatterie |
-| Karte | `custom:zeo-sonnen-card` für eigene Dashboards. Wird automatisch geladen, eine Ressource muss nicht angelegt werden |
+| Seitenleiste | **sonnenBatterie Modern** (Hausansicht mit Energiefluss) und/oder **sonnenBatterie Classic** (Portal: Übersicht, Energiefluss live, Auswertung, sonnenBatterie) je Batterie |
+| Karten | `custom:zeo-sonnen-3d-card` (Modern) und `custom:zeo-sonnen-card` (Classic) für eigene Dashboards. Werden automatisch geladen, eine Ressource muss nicht angelegt werden |
 | Modell | Wird bei der Einrichtung gewählt und bestimmt die Gehäusefarbe im Portal |
 | Power-Unit-Tausch | „Neu konfigurieren“ erkennt eine neue Seriennummer und übernimmt sie. Entitäten, Entity-IDs und Verlauf bleiben erhalten |
+
+### Dashboards
+
+| Auswahl | Seitenleiste |
+|---|---|
+| Modern (Standard) | **sonnenBatterie Modern**: Hausbild mit Tag/Nacht, Energiefluss, Tageswerte, Auswertung, Einstellungen |
+| Classic | **sonnenBatterie Classic**: Portal im Stil von my.sonnen |
+| Beide | beide Einträge |
+
+Gewählt wird bei der Einrichtung, ändern lässt es sich unter **Konfigurieren**. Einträge aus Versionen vor der Auswahl zeigen Classic.
 
 ### Modelle
 
@@ -43,11 +53,36 @@ Andere Kombinationen lehnt die Einrichtung ab. Die Entität `number.*_backup_res
 1. Im Marketplace (HA 2026.11+) bzw. in HACS dieses Repository als benutzerdefiniertes Repository hinzufügen, Kategorie **Integration**.
 2. **ZEO sonnenBatterie** installieren und Home Assistant neu starten.
 3. Im Batterie-Dashboard unter **Software-Integration** die JSON-API einschalten und den Token kopieren. Für Notstrompuffer und Betriebsart zusätzlich Schreibzugriff aktivieren.
-4. **Einstellungen → Geräte & Dienste → Integration hinzufügen → ZEO sonnenBatterie**: Host, Token, Modell und sonnenProtect eintragen.
+4. **Einstellungen → Geräte & Dienste → Integration hinzufügen → ZEO sonnenBatterie**: Host, Token, Modell, sonnenProtect und Dashboard eintragen.
 
-Der Seitenleisten-Eintrag **sonnenBatterie** erscheint danach automatisch.
+Die Seitenleisten-Einträge erscheinen danach automatisch.
 
-## Karte in eigenen Dashboards
+## Karten in eigenen Dashboards
+
+### Modern (Hausansicht)
+
+```yaml
+type: custom:zeo-sonnen-3d-card
+# alles optional:
+entry_id: 01ABC...          # nur bei mehreren Batterien nötig
+title: Mein Energiefluss
+theme: auto                 # auto (folgt Home Assistant) | light | dark
+backup: true                # Notstrompuffer erzwingen (true) oder ausblenden (false), sonst aus der Einrichtung
+max_power: 15000            # W, Skala für das Tempo der Flusspunkte (sonst Höchstwert der letzten 7 Tage)
+threshold: 30               # W, kleinere Leistungen gelten als 0
+wallbox: sensor.wallbox_leistung          # Kreis „Wallbox“
+wallbox_energy: sensor.wallbox_energie    # für „Heute“
+wallbox_included: true      # Wallbox hängt hinter der sonnen-Messung (Linie vom Verbrauch)
+heatpump: sensor.waermepumpe_leistung     # Kreis „Wärmepumpe“
+heatpump_energy: sensor.waermepumpe_energie
+heatpump_included: true
+bg_day: /local/haus-tag.jpg    # eigene Hintergrundbilder (1365 × 768)
+bg_night: /local/haus-nacht.jpg
+```
+
+Ohne Angaben zeigt die Karte nur Daten der sonnenBatterie. Wallbox und Wärmepumpe erscheinen nur, wenn sie eingetragen sind.
+
+### Classic (Portal)
 
 ```yaml
 type: custom:zeo-sonnen-card
@@ -62,7 +97,7 @@ Die Karte fragt über den Websocket-Befehl `zeo_sonnen/info` ab, welche Entität
 
 ## Hinweise
 
-- Ein sonnen-Logo ist nicht enthalten. Die Illustration ist selbst gezeichnet. Icon und Logo der Integration sind das ZEO-SOLAR-Logo.
+- Ein sonnen-Logo ist nicht enthalten. Die Illustration im Classic-Portal ist selbst gezeichnet, die Hausbilder der Modern-Ansicht sind KI-generiert (Gemini). Icon und Logo der Integration sind das ZEO-SOLAR-Logo.
 - `remaining_energy` kommt unverändert aus der API (`RemainingCapacity_Wh`). Während des Vollladezyklus nach einem Modultausch kann der Wert unplausibel sein. Das Portal rechnet die gespeicherte Energie deshalb aus Ladestand × Volllade-Kapazität.
 
 ## Entwicklung

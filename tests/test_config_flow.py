@@ -14,7 +14,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.zeo_sonnen.api import SonnenAuthError, SonnenConnectionError
-from custom_components.zeo_sonnen.const import CONF_MODEL, CONF_PROTECT, DOMAIN
+from custom_components.zeo_sonnen.const import CONF_DASHBOARD, CONF_MODEL, CONF_PROTECT, DOMAIN
 
 from .conftest import HOST, SERIAL, TOKEN
 
@@ -34,6 +34,7 @@ async def test_user_flow(hass: HomeAssistant, mock_api: MagicMock) -> None:
         CONF_API_TOKEN: TOKEN,
         CONF_MODEL: "performance",
         CONF_PROTECT: "none",
+        CONF_DASHBOARD: "modern",
     }
     assert result["result"].unique_id == SERIAL
 
@@ -187,6 +188,8 @@ async def test_options_flow(hass: HomeAssistant, init_integration: MockConfigEnt
         CONF_SCAN_INTERVAL: 30,
         CONF_MODEL: "performance",
         CONF_PROTECT: "none",
+        # entries from before the dashboard choice keep the classic portal
+        CONF_DASHBOARD: "classic",
     }
     assert init_integration.runtime_data.update_interval.total_seconds() == 30
 
@@ -233,3 +236,12 @@ async def test_options_flow_protect(hass: HomeAssistant, init_integration: MockC
     await hass.async_block_till_done()
     assert init_integration.runtime_data.protect_key == "protect_8000"
     assert init_integration.runtime_data.has_backup
+
+
+async def test_user_flow_dashboard(hass: HomeAssistant, mock_api: MagicMock) -> None:
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HOST: "192.168.1.50", CONF_API_TOKEN: TOKEN, CONF_DASHBOARD: "both"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_DASHBOARD] == "both"

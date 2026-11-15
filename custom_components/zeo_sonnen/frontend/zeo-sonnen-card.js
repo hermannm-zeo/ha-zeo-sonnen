@@ -73,6 +73,8 @@ const fmtNum = (v, d = 1) =>
 const kW = (w) => (w == null ? "–" : fmtNum(Math.abs(w) / 1000, 1));
 const pad = (n) => String(n).padStart(2, "0");
 const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+// Kalendertage statt fester 24 h, damit Sommer-/Winterzeit keinen Tag überspringt
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const fmtDate = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 
 /* ------------------------------------------------------------------ */
@@ -585,10 +587,10 @@ class SonnenPortalCard extends HTMLElement {
   }
   _bindAnalysis() {
     const r = this.shadowRoot;
-    r.getElementById("d-prev").onclick = () => { this._day = new Date(this._day.getTime() - 86400000); this._day = dayStart(this._day); this._loadAnalysis(); };
+    r.getElementById("d-prev").onclick = () => { this._day = addDays(this._day, -1); this._loadAnalysis(); };
     r.getElementById("d-next").onclick = () => {
-      const n = new Date(this._day.getTime() + 36 * 3600000);
-      if (n <= new Date()) { this._day = dayStart(n); this._loadAnalysis(); }
+      const n = addDays(this._day, 1);
+      if (n <= dayStart(new Date())) { this._day = n; this._loadAnalysis(); }
     };
     if (!this._ro) {
       this._ro = new ResizeObserver(() => { if (this._page === "analysis" && this._series) { this._drawChart(); this._drawBars(); } });
@@ -598,12 +600,14 @@ class SonnenPortalCard extends HTMLElement {
   }
   async _loadAnalysis() {
     this._anaLoaded = true;
+    const req = (this._anaReq = (this._anaReq || 0) + 1);
     const r = this.shadowRoot;
     const e = this._cfg.entities;
     const start = dayStart(this._day);
-    const end = new Date(start.getTime() + 86400000);
+    const end = addDays(start, 1);
     const lbl = fmtDate(start);
     const dl = r.getElementById("d-lbl"); if (dl) dl.textContent = lbl;
+    const dn = r.getElementById("d-next"); if (dn) dn.classList.toggle("dis", start >= dayStart(new Date()));
     const zl = r.getElementById("z-lbl"); if (zl) zl.textContent = lbl;
     const ids = [e.pv_power, e.consumption_power, e.soc];
     try {
@@ -634,8 +638,10 @@ class SonnenPortalCard extends HTMLElement {
       const cons = sample(e.consumption_power, 0.001);
       const soc = sample(e.soc, 1);
       const direct = pv.map((p, i) => (p == null || cons[i] == null ? null : Math.min(p, cons[i])));
+      if (req !== this._anaReq) return;
       this._series = { pv, cons, soc, direct, start };
     } catch (err) {
+      if (req !== this._anaReq) return;
       this._series = { pv: [], cons: [], soc: [], direct: [], start, err: String(err.message || err) };
     }
     try {
@@ -655,6 +661,7 @@ class SonnenPortalCard extends HTMLElement {
         });
         return out;
       };
+      if (req !== this._anaReq) return;
       this._stats = {
         pv: hourly(e.pv_energy),
         cons: hourly(e.consumption_energy),
@@ -664,6 +671,7 @@ class SonnenPortalCard extends HTMLElement {
     } catch (err) {
       this._stats = null;
     }
+    if (req !== this._anaReq) return;
     this._drawChart();
     this._drawBars();
   }
@@ -887,6 +895,7 @@ class SonnenPortalCard extends HTMLElement {
     .anahead{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px;padding-bottom:10px;border-bottom:1px solid ${C.line}}
     .datenav{display:flex;align-items:center;gap:12px;font-size:14px}
     .datenav a{color:${C.blue};cursor:pointer;font-size:20px;user-select:none;padding:0 4px}
+    .datenav a.dis{color:${C.light};cursor:default}
     .legend{display:flex;gap:16px;font-size:11px;color:${C.grey};flex-wrap:wrap}
     .legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
     .legend i.ln{width:14px;height:2px;border-radius:0;vertical-align:middle}
@@ -950,9 +959,22 @@ class ZeoSonnenPanel extends HTMLElement {
   _render() {
     if (!this._hass || !this._panel) return;
     if (!this._card) {
-      this.style.cssText = "display:block;min-height:100vh;background:#EEF0F2;box-sizing:border-box;padding:16px";
-      this._baseCfg = { entry_id: (this._panel.config || {}).entry_id, default_page: "overview" };
-      this._card = document.createElement("zeo-sonnen-card");
+      // style aus der Integration: classic = Portal, modern = Hausansicht (zeo-sonnen-3d-card)
+      const pc = this._panel.config || {};
+      const modern = pc.style === "modern";
+      const tag = modern ? "zeo-sonnen-3d-card" : "zeo-sonnen-card";
+      if (!customElements.get(tag)) {
+        if (!this._waiting) {
+          this._waiting = true;
+          customElements.whenDefined(tag).then(() => { this._waiting = false; this._render(); });
+        }
+        return;
+      }
+      this.style.cssText = modern
+        ? "display:block;min-height:100vh;background:var(--primary-background-color)"
+        : "display:block;min-height:100vh;background:#EEF0F2;box-sizing:border-box;padding:16px";
+      this._baseCfg = modern ? { entry_id: pc.entry_id } : { entry_id: pc.entry_id, default_page: "overview" };
+      this._card = document.createElement(tag);
       this._card.setConfig({ ...this._baseCfg, menu_button: !!this._narrow });
       this.appendChild(this._card);
     }
@@ -971,3 +993,9 @@ if (!customElements.get("zeo-sonnen-card")) {
   console.info(`%c ZEO-SONNEN %c v${SPC_VERSION} `, "background:#0A1535;color:#fff", "background:#A1D343;color:#0A1535");
 }
 if (!customElements.get("zeo-sonnen-panel")) customElements.define("zeo-sonnen-panel", ZeoSonnenPanel);
+
+// 3D-Ansicht (custom:zeo-sonnen-3d-card) liegt in eigener Datei und wird mitgeladen
+if (!customElements.get("zeo-sonnen-3d-card"))
+  // gleiche Version wie diese Datei (die Integration hängt einen Hash der Frontend-Dateien an)
+  import("/zeo_sonnen_static/zeo-sonnen-3d-card.js?v=" + (new URL(import.meta.url).searchParams.get("v") || SPC_VERSION))
+    .catch((e) => console.warn("zeo-sonnen-3d-card:", e));
