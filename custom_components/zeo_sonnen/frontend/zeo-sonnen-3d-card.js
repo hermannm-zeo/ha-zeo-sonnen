@@ -8,7 +8,7 @@
  * zeo-sonnen-bg-night.js) oder werden über bg_day / bg_night angegeben.
  */
 const Z3_TAG = "zeo-sonnen-3d-card";
-const Z3_VERSION = "0.5.0-dev36";
+const Z3_VERSION = "0.5.0";
 // sonnen-Systemstatus kundenverständlich
 const Z3_SYS = { ongrid: "Netzbetrieb", offgrid: "Notstrombetrieb", island: "Notstrombetrieb", standby: "Bereitschaft", error: "Störung" };
 const Z3_BASE = "/zeo_sonnen_static";

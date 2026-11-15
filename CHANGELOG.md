@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.0
 
 ### Neu
 - **Zwei Dashboards zur Auswahl** bei Einrichtung und unter **Konfigurieren**: „sonnenBatterie Modern“ (Hausansicht mit Energiefluss, Standard), „sonnenBatterie Classic“ (bisheriges Portal) oder beide. Bestehende Einträge behalten Classic

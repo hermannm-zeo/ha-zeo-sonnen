@@ -110,6 +110,6 @@ ruff check . && ruff format --check .
 
 ## Neue Version veröffentlichen
 
-1. Version in `custom_components/zeo_sonnen/manifest.json` und `SPC_VERSION` in `frontend/zeo-sonnen-card.js` erhöhen
+1. Version in `custom_components/zeo_sonnen/manifest.json`, `SPC_VERSION` in `frontend/zeo-sonnen-card.js` und `Z3_VERSION` in `frontend/zeo-sonnen-3d-card.js` erhöhen
 2. In `CHANGELOG.md` einen Abschnitt `## vX.Y.Z` mit den Änderungen ergänzen
 3. Auf `main` pushen. Die Action **Release** legt Tag und GitHub-Release automatisch an, der Marketplace bietet das Update dann an.
