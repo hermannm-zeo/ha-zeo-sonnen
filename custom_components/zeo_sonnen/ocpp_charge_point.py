@@ -43,7 +43,10 @@ PROFILE_ID = 101  # our one TxDefaultProfile; replaced on every change
 STACK_LEVEL = 1
 KEY_MEASURANDS = "MeterValuesSampledData"
 KEY_SAMPLE_INTERVAL = "MeterValueSampleInterval"
-# What the box should report while charging (the Alfen default is energy only).
+KEY_ALIGNED = "MeterValuesAlignedData"
+KEY_ALIGNED_INTERVAL = "ClockAlignedDataInterval"
+# What the box should report: while charging every 10 s, and when idle every 15 min
+# (clock aligned; the Alfen sends nothing idle without it, not even on TriggerMessage).
 WANTED_CONFIGURATION = {
     KEY_MEASURANDS: ",".join(
         (
@@ -55,7 +58,10 @@ WANTED_CONFIGURATION = {
         )
     ),
     KEY_SAMPLE_INTERVAL: "10",
+    KEY_ALIGNED: "Energy.Active.Import.Register,Voltage",
+    KEY_ALIGNED_INTERVAL: "900",
 }
+CSV_KEYS = (KEY_MEASURANDS, KEY_ALIGNED)  # order of the list does not matter
 
 
 def iso_now() -> str:
@@ -354,7 +360,7 @@ class ZeoChargePoint(ChargePoint):  # type: ignore[misc]
             current = have.get(key)
             if current is None:
                 continue  # key unknown to this box
-            if key == KEY_MEASURANDS and _csv(current) == _csv(want):
+            if key in CSV_KEYS and _csv(current) == _csv(want):
                 continue
             if current == want:
                 continue

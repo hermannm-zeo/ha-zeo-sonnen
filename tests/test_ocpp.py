@@ -48,6 +48,8 @@ GOOD_CONFIG = [
         ),
     },
     {"key": "MeterValueSampleInterval", "readonly": False, "value": "10"},
+    {"key": "MeterValuesAlignedData", "readonly": False, "value": "Voltage,Energy.Active.Import.Register"},
+    {"key": "ClockAlignedDataInterval", "readonly": False, "value": "900"},
 ]
 CALL_ERROR = object()  # answer a request with a CallError
 
@@ -164,20 +166,25 @@ async def test_session(hass: HomeAssistant, server: OcppServer, connect: Callabl
     async_dispatcher_connect(hass, SIGNAL_OCPP_UPDATE, updates.append)
     box = await connect()
 
-    # Right after connecting the central system asks for status, boot (firmware unknown yet)
-    # and meter values, then checks the settings.
+    # Right after connecting the central system asks for status and boot (firmware unknown
+    # yet), checks the settings and finally asks for meter values.
     assert await box.wait_calls(4) == [
         "TriggerMessage",
         "TriggerMessage",
-        "TriggerMessage",
         "GetConfiguration",
+        "TriggerMessage",
     ]
-    assert [c[3] for c in box.received_calls[:3]] == [
+    assert [box.received_calls[i][3] for i in (0, 1, 3)] == [
         {"requestedMessage": "StatusNotification"},
         {"requestedMessage": "BootNotification"},
         {"requestedMessage": "MeterValues", "connectorId": 1},
     ]
-    assert set(box.received_calls[3][3]["key"]) == {"MeterValuesSampledData", "MeterValueSampleInterval"}
+    assert set(box.received_calls[2][3]["key"]) == {
+        "MeterValuesSampledData",
+        "MeterValueSampleInterval",
+        "MeterValuesAlignedData",
+        "ClockAlignedDataInterval",
+    }
 
     boot = await box.result(
         "BootNotification",
@@ -409,12 +416,16 @@ async def test_settings_are_written_when_different(server: OcppServer, connect: 
         "configurationKey": [
             {"key": "MeterValuesSampledData", "readonly": False, "value": "Energy.Active.Import.Register"},
             {"key": "MeterValueSampleInterval", "readonly": False, "value": "60"},
+            {"key": "MeterValuesAlignedData", "readonly": False, "value": ""},
+            {"key": "ClockAlignedDataInterval", "readonly": False, "value": "897"},
         ]
     }
-    calls = await box.wait_calls(6)
-    assert calls[3:] == ["GetConfiguration", "ChangeConfiguration", "ChangeConfiguration"]
-    changes = {c[3]["key"]: c[3]["value"] for c in box.received_calls[4:]}
+    calls = await box.wait_calls(8)
+    assert calls[2:] == ["GetConfiguration"] + ["ChangeConfiguration"] * 4 + ["TriggerMessage"]
+    changes = {c[3]["key"]: c[3]["value"] for c in box.received_calls[3:7]}
     assert changes["MeterValueSampleInterval"] == "10"
+    assert changes["ClockAlignedDataInterval"] == "900"
+    assert set(changes["MeterValuesAlignedData"].split(",")) == {"Energy.Active.Import.Register", "Voltage"}
     assert set(changes["MeterValuesSampledData"].split(",")) == {
         "Energy.Active.Import.Register",
         "Current.Import",
@@ -440,7 +451,7 @@ async def test_settings_unknown_key_and_order(server: OcppServer, connect: Calla
         "unknownKey": ["MeterValueSampleInterval"],
     }
     await _connected(box)
-    assert [c[2] for c in box.received_calls][3:] == ["GetConfiguration"]
+    assert [c[2] for c in box.received_calls][2:] == ["GetConfiguration", "TriggerMessage"]
 
 
 async def test_set_and_clear_limit(

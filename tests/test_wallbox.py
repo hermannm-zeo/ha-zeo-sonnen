@@ -317,7 +317,8 @@ async def test_model_and_firmware_survive_a_restart(
 
     box = await connect()
     # firmware known again -> no BootNotification requested
-    assert [c[3].get("requestedMessage") for c in box.received_calls[:2]] == [
+    assert [c[3].get("requestedMessage") for c in box.received_calls[:3]] == [
         "StatusNotification",
+        None,  # GetConfiguration
         "MeterValues",
     ]

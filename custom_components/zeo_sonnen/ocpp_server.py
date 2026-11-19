@@ -173,8 +173,8 @@ class OcppServer:
         for step in (
             cp.async_request_status,
             cp.async_request_boot,
-            cp.async_request_meter_values,
             cp.async_ensure_configuration,
+            cp.async_request_meter_values,  # last: the Alfen may not answer this one when idle
         ):
             try:
                 await step()
