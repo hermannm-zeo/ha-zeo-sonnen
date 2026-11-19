@@ -228,6 +228,18 @@
     }
   },
   "exceptions": {
+    "wallbox_not_connected": {
+      "message": "Die Wallbox {charge_point} ist nicht verbunden."
+    },
+    "wallbox_invalid_current": {
+      "message": "Der Ladestrom muss 0 (Pause) oder mindestens 6 A sein."
+    },
+    "wallbox_rejected": {
+      "message": "Die Wallbox hat den Befehl abgelehnt."
+    },
+    "wallbox_command_failed": {
+      "message": "Die Wallbox {charge_point} hat den Befehl nicht ausgeführt: {error}"
+    },
     "write_failed": {
       "message": "Die Batterie hat die Änderung nicht angenommen. Ist Schreibzugriff für den API-Token aktiv?"
     },
@@ -278,6 +290,52 @@
     }
   },
   "services": {
+    "wallbox_set_limit": {
+      "name": "Wallbox-Ladestrom begrenzen",
+      "description": "Setzt Ladestrom und Phasenzahl der Wallbox. 0 A pausiert die Ladung, ohne den Ladevorgang zu beenden. Einphasig höchstens 16 A.",
+      "fields": {
+        "charge_point_id": {
+          "name": "Wallbox",
+          "description": "OCPP-ID der Wallbox, z. B. die Seriennummer ACE0871215."
+        },
+        "current": {
+          "name": "Ladestrom",
+          "description": "Strom je Phase in Ampere: 0 (Pause) oder 6 bis 32."
+        },
+        "phases": {
+          "name": "Phasen",
+          "description": "3-phasig oder 1-phasig laden."
+        },
+        "valid_for": {
+          "name": "Gültig für",
+          "description": "Minuten, nach denen die Wallbox die Begrenzung selbst aufhebt und wieder mit voller Leistung lädt (Ausfallschutz). Leer = bis zur nächsten Änderung."
+        }
+      }
+    },
+    "wallbox_clear_limit": {
+      "name": "Wallbox-Begrenzung aufheben",
+      "description": "Hebt die Begrenzung auf. Die Wallbox lädt wieder mit ihrem eigenen Höchststrom.",
+      "fields": {
+        "charge_point_id": {
+          "name": "Wallbox",
+          "description": "OCPP-ID der Wallbox, z. B. die Seriennummer ACE0871215."
+        }
+      }
+    },
+    "wallbox_get_configuration": {
+      "name": "Wallbox-Konfiguration lesen",
+      "description": "Liest OCPP-Konfigurationswerte aus der Wallbox.",
+      "fields": {
+        "charge_point_id": {
+          "name": "Wallbox",
+          "description": "OCPP-ID der Wallbox, z. B. die Seriennummer ACE0871215."
+        },
+        "keys": {
+          "name": "Schlüssel",
+          "description": "Zu lesende Schlüssel. Leer = alle."
+        }
+      }
+    },
     "set_power": {
       "name": "Batterieleistung setzen",
       "description": "Lädt oder entlädt die Batterie mit fester Leistung. Nur in der Betriebsart Manuell. 0 W beendet.",

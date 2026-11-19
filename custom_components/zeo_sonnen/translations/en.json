@@ -228,6 +228,18 @@
     }
   },
   "exceptions": {
+    "wallbox_not_connected": {
+      "message": "The wallbox {charge_point} is not connected."
+    },
+    "wallbox_invalid_current": {
+      "message": "The current must be 0 (pause) or at least 6 A."
+    },
+    "wallbox_rejected": {
+      "message": "The wallbox rejected the command."
+    },
+    "wallbox_command_failed": {
+      "message": "The wallbox {charge_point} did not carry out the command: {error}"
+    },
     "write_failed": {
       "message": "The battery didn't accept the change. Check that write access is enabled for the API token."
     },
@@ -278,6 +290,52 @@
     }
   },
   "services": {
+    "wallbox_set_limit": {
+      "name": "Limit wallbox current",
+      "description": "Sets the charging current and number of phases of the wallbox. 0 A pauses charging without ending the session. Single phase is capped at 16 A.",
+      "fields": {
+        "charge_point_id": {
+          "name": "Wallbox",
+          "description": "OCPP id of the wallbox, e.g. the serial number ACE0871215."
+        },
+        "current": {
+          "name": "Current",
+          "description": "Current per phase in ampere: 0 (pause) or 6 to 32."
+        },
+        "phases": {
+          "name": "Phases",
+          "description": "Charge on 3 phases or on 1 phase."
+        },
+        "valid_for": {
+          "name": "Valid for",
+          "description": "Minutes after which the wallbox drops the limit by itself and charges at full power again (fail-safe). Empty = until changed."
+        }
+      }
+    },
+    "wallbox_clear_limit": {
+      "name": "Remove wallbox limit",
+      "description": "Removes the limit; the wallbox charges with its own maximum current again.",
+      "fields": {
+        "charge_point_id": {
+          "name": "Wallbox",
+          "description": "OCPP id of the wallbox, e.g. the serial number ACE0871215."
+        }
+      }
+    },
+    "wallbox_get_configuration": {
+      "name": "Read wallbox configuration",
+      "description": "Reads OCPP configuration keys from the wallbox.",
+      "fields": {
+        "charge_point_id": {
+          "name": "Wallbox",
+          "description": "OCPP id of the wallbox, e.g. the serial number ACE0871215."
+        },
+        "keys": {
+          "name": "Keys",
+          "description": "Keys to read. Empty = all."
+        }
+      }
+    },
     "set_power": {
       "name": "Set battery power",
       "description": "Charges or discharges the battery at a fixed power. Only works in manual operating mode. Set 0 W to stop.",

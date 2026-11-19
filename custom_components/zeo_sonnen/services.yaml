@@ -24,3 +24,55 @@ set_power:
           step: 100
           unit_of_measurement: W
           mode: box
+wallbox_set_limit:
+  fields:
+    charge_point_id:
+      required: true
+      example: ACE0871215
+      selector:
+        text:
+    current:
+      required: true
+      example: 10
+      selector:
+        number:
+          min: 0
+          max: 32
+          step: 1
+          unit_of_measurement: A
+          mode: box
+    phases:
+      default: 3
+      selector:
+        select:
+          options:
+            - "3"
+            - "1"
+    valid_for:
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 1440
+          step: 1
+          unit_of_measurement: min
+          mode: box
+wallbox_clear_limit:
+  fields:
+    charge_point_id:
+      required: true
+      example: ACE0871215
+      selector:
+        text:
+wallbox_get_configuration:
+  fields:
+    charge_point_id:
+      required: true
+      example: ACE0871215
+      selector:
+        text:
+    keys:
+      example: Station-MaxCurrent
+      selector:
+        text:
+          multiple: true

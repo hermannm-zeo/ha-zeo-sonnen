@@ -120,6 +120,15 @@
     }
   },
   "services": {
+    "wallbox_set_limit": {
+      "service": "mdi:ev-station"
+    },
+    "wallbox_clear_limit": {
+      "service": "mdi:ev-plug-type2"
+    },
+    "wallbox_get_configuration": {
+      "service": "mdi:cog-outline"
+    },
     "set_power": {
       "service": "mdi:battery-sync"
     }

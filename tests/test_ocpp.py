@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 from aiohttp import ClientWebSocketResponse, WSMsgType
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -532,3 +533,85 @@ async def test_commands_need_a_connection(server: OcppServer) -> None:
 def test_profile_validation(amps: int, phases: int) -> None:
     with pytest.raises(ValueError):
         build_profile(amps, phases)
+
+
+# --- services ------------------------------------------------------------------
+
+
+async def _svc(hass: HomeAssistant, service: str, data: dict[str, Any], response: bool = False) -> Any:
+    return await hass.services.async_call(DOMAIN, service, data, blocking=True, return_response=response)
+
+
+async def test_service_set_and_clear_limit(
+    hass: HomeAssistant, server: OcppServer, connect: Callable[..., Any]
+) -> None:
+    box = await connect()
+    await _connected(box)
+    before = dt_util.utcnow()
+    await _svc(
+        hass, "wallbox_set_limit", {"charge_point_id": CP, "current": 8, "phases": "1", "valid_for": 5}
+    )
+    profile = box.received_calls[-1][3]["csChargingProfiles"]
+    assert profile["chargingSchedule"]["chargingSchedulePeriod"][0]["limit"] == 8
+    assert profile["chargingSchedule"]["chargingSchedulePeriod"][0]["numberPhases"] == 1
+    valid_to = dt_util.parse_datetime(profile["validTo"])
+    assert valid_to is not None
+    assert 4 * 60 - 1 <= (valid_to - before).total_seconds() <= 5 * 60 + 1
+
+    await _svc(hass, "wallbox_set_limit", {"charge_point_id": CP, "current": 0})
+    profile = box.received_calls[-1][3]["csChargingProfiles"]
+    assert profile["chargingSchedule"]["chargingSchedulePeriod"][0] == {
+        "startPeriod": 0,
+        "limit": 0,
+        "numberPhases": 3,
+    }
+    assert "validTo" not in profile
+
+    await _svc(hass, "wallbox_clear_limit", {"charge_point_id": CP})
+    assert box.received_calls[-1][2] == "ClearChargingProfile"
+
+
+async def test_service_get_configuration(
+    server: OcppServer, hass: HomeAssistant, connect: Callable[..., Any]
+) -> None:
+    box = await connect()
+    await _connected(box)
+    result = await _svc(
+        hass, "wallbox_get_configuration", {"charge_point_id": CP, "keys": "MeterValueSampleInterval"}, True
+    )
+    assert box.received_calls[-1][3] == {"key": ["MeterValueSampleInterval"]}
+    assert result["configuration"]["MeterValueSampleInterval"] == "10"
+
+
+async def test_service_errors(hass: HomeAssistant, server: OcppServer, connect: Callable[..., Any]) -> None:
+    with pytest.raises(ServiceValidationError) as err:
+        await _svc(hass, "wallbox_clear_limit", {"charge_point_id": CP})
+    assert err.value.translation_key == "wallbox_not_connected"
+
+    box = await connect()
+    await _connected(box)
+    with pytest.raises(ServiceValidationError) as err:
+        await _svc(hass, "wallbox_set_limit", {"charge_point_id": CP, "current": 4})
+    assert err.value.translation_key == "wallbox_invalid_current"
+
+    box.answers["SetChargingProfile"] = {"status": "Rejected"}
+    with pytest.raises(HomeAssistantError) as err:
+        await _svc(hass, "wallbox_set_limit", {"charge_point_id": CP, "current": 10})
+    assert err.value.translation_key == "wallbox_rejected"
+
+    box.answers["ClearChargingProfile"] = {"status": "Rejected"}  # not allowed by the schema
+    with pytest.raises(HomeAssistantError) as err:
+        await _svc(hass, "wallbox_clear_limit", {"charge_point_id": CP})
+    assert err.value.translation_key == "wallbox_command_failed"
+
+    box.answers["GetConfiguration"] = CALL_ERROR
+    with pytest.raises(HomeAssistantError) as err:
+        await _svc(hass, "wallbox_get_configuration", {"charge_point_id": CP}, True)
+    assert err.value.translation_key == "wallbox_command_failed"
+
+    with (
+        patch.object(OcppServer, "async_clear_limit", return_value=False),
+        pytest.raises(HomeAssistantError) as err,
+    ):
+        await _svc(hass, "wallbox_clear_limit", {"charge_point_id": CP})
+    assert err.value.translation_key == "wallbox_rejected"

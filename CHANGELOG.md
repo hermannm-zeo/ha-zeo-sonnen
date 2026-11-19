@@ -7,6 +7,7 @@
 - Verarbeitet Boot, Heartbeat, Status, Messwerte (Energie, Leistung und Strom je Phase, angebotener Strom, Spannung), Autorisierung und Ladevorgänge; setzt die Uhr der Box und merkt sich die Zeitabweichung
 - Fragt nach dem Verbinden den Status der Box ab und stellt die Messwerte ein (Energie, Strom, angebotener Strom, Leistung, Spannung alle 10 s). Geschrieben wird nur, was abweicht
 - Steuerung: Ladestrom und Phasenzahl als Ladeprofil (0 A = Pause ohne Abbruch, einphasig höchstens 16 A, optional mit Ablaufzeit als Ausfallschutz), Profil löschen, Konfiguration lesen und ändern
+- Aktionen `zeo_sonnen.wallbox_set_limit` (Ladestrom 0 oder 6–32 A, 1 oder 3 Phasen, optional „Gültig für“ in Minuten), `zeo_sonnen.wallbox_clear_limit` und `zeo_sonnen.wallbox_get_configuration` (mit Antwort)
 - Noch ohne Entitäten (folgt)
 - Wallbox-Karte `custom:zeo-sonnen-wallbox-card` (Vorschau, 0.7.0-dev1): Status, Leistung je Phase, Ladevorgang, geladene Energie, Gerät, Ladeleistung, Lademodus und Einstellungen. Liest noch die Entitäten der OCPP-Integration aus dem Marketplace und wird noch nicht automatisch geladen
 - Regelkern `charge_logic.py` für die Lademodi Aus/Eco/Eco+/Power/Manuell mit Tests; Testaufbau als pyscript unter `tools/pyscript/`
