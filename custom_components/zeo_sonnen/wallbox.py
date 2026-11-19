@@ -27,6 +27,10 @@ from .ocpp_server import DATA_OCPP, SIGNAL_OCPP_UPDATE, OcppServer
 MANUFACTURER = "sonnen"
 MODEL = "sonnenCharger 3"
 UNIQUE_INFIX = "_wallbox_"
+# HA 2026.8+ links devices by device id (via_device_id) and looks them up per config entry;
+# older cores (down to the 2025.2 minimum) only know the identifier tuple (via_device).
+NEW_DEVICE_API = "via_device_id" in getattr(DeviceInfo, "__annotations__", {})
+_PARENTS: dict[str, str] = {}  # entry_id -> device id of the battery
 
 
 def wallbox_id(entry: SonnenConfigEntry) -> str | None:
@@ -47,6 +51,24 @@ def device_identifier(serial: str) -> tuple[str, str]:
     return (DOMAIN, f"{serial}_wallbox")
 
 
+def find_device(
+    registry: dr.DeviceRegistry, identifier: tuple[str, str], entry_id: str
+) -> dr.DeviceEntry | None:
+    if NEW_DEVICE_API:  # pragma: no cover - not available in the test core
+        device: dr.DeviceEntry | None = registry.async_get_device_by_identifier(identifier, entry_id)
+        return device
+    return registry.async_get_device(identifiers={identifier})
+
+
+def via(entry: SonnenConfigEntry) -> dict[str, Any]:
+    """Link to the battery device in the form this core understands."""
+    serial = str(entry.runtime_data.serial)
+    if NEW_DEVICE_API:  # pragma: no cover - not available in the test core
+        parent = _PARENTS.get(entry.entry_id)
+        return {"via_device_id": parent} if parent else {}
+    return {"via_device": (DOMAIN, serial)}
+
+
 @callback
 def async_setup_wallbox(hass: HomeAssistant, entry: SonnenConfigEntry) -> None:
     """Let the box connect and keep the device (model, firmware) up to date."""
@@ -56,14 +78,25 @@ def async_setup_wallbox(hass: HomeAssistant, entry: SonnenConfigEntry) -> None:
     srv = server(hass)
     entry.async_on_unload(srv.async_allow(cp_id))
     serial = str(entry.runtime_data.serial)
+    registry = dr.async_get(hass)
+
+    # The battery device must exist before the wallbox can point to it.
+    parent = registry.async_get_or_create(config_entry_id=entry.entry_id, **entry.runtime_data.device_info)
+    _PARENTS[entry.entry_id] = parent.id
+
+    # After an HA restart the box usually only reconnects without a BootNotification:
+    # keep model and firmware from the device registry until it reports them again.
+    state = srv.states[cp_id]
+    if (known := find_device(registry, device_identifier(serial), entry.entry_id)) is not None:
+        state.model = state.model or known.model_id
+        state.firmware = state.firmware or known.sw_version
 
     @callback
     def _update_device(changed: str) -> None:
         if changed != cp_id:
             return
         state = srv.states[cp_id]
-        registry = dr.async_get(hass)
-        device = registry.async_get_device(identifiers={device_identifier(serial)})
+        device = find_device(registry, device_identifier(serial), entry.entry_id)
         if device is None:
             return
         if device.sw_version != state.firmware or device.model_id != state.model:
@@ -153,7 +186,7 @@ class WallboxEntity(Entity):
             name="Wallbox",
             serial_number=cp_id,
             sw_version=state.firmware,
-            via_device=(DOMAIN, serial),
+            **via(entry),
         )
 
     @property

@@ -164,6 +164,21 @@ async def test_session(hass: HomeAssistant, server: OcppServer, connect: Callabl
     async_dispatcher_connect(hass, SIGNAL_OCPP_UPDATE, updates.append)
     box = await connect()
 
+    # Right after connecting the central system asks for status, boot (firmware unknown yet)
+    # and meter values, then checks the settings.
+    assert await box.wait_calls(4) == [
+        "TriggerMessage",
+        "TriggerMessage",
+        "TriggerMessage",
+        "GetConfiguration",
+    ]
+    assert [c[3] for c in box.received_calls[:3]] == [
+        {"requestedMessage": "StatusNotification"},
+        {"requestedMessage": "BootNotification"},
+        {"requestedMessage": "MeterValues", "connectorId": 1},
+    ]
+    assert set(box.received_calls[3][3]["key"]) == {"MeterValuesSampledData", "MeterValueSampleInterval"}
+
     boot = await box.result(
         "BootNotification",
         {
@@ -186,12 +201,8 @@ async def test_session(hass: HomeAssistant, server: OcppServer, connect: Callabl
         "2.8.0",
     )
 
-    # Right after connecting the central system asks for the status and checks the settings.
-    assert await box.wait_calls(2) == ["TriggerMessage", "GetConfiguration"]
-    assert box.received_calls[0][3] == {"requestedMessage": "StatusNotification"}
-    assert set(box.received_calls[1][3]["key"]) == {"MeterValuesSampledData", "MeterValueSampleInterval"}
     await box.result("Heartbeat", {})
-    assert len(box.received_calls) == 2  # settings already right: nothing written
+    assert len(box.received_calls) == 4  # settings already right: nothing written
 
     await box.result("StatusNotification", {"connectorId": 0, "errorCode": "NoError", "status": "Available"})
     await box.result("StatusNotification", {"connectorId": 1, "errorCode": "NoError", "status": "Preparing"})
@@ -387,8 +398,8 @@ async def test_setup_once_and_transaction_ids(hass: HomeAssistant, server: OcppS
 
 
 async def _connected(box: Box) -> None:
-    """Wait until the setup after connecting (status, settings) is done."""
-    await box.wait_calls(2)
+    """Wait until the setup after connecting (status, boot, meter values, settings) is done."""
+    await box.wait_calls(4)
     await box.result("Heartbeat", {})
 
 
@@ -400,9 +411,9 @@ async def test_settings_are_written_when_different(server: OcppServer, connect: 
             {"key": "MeterValueSampleInterval", "readonly": False, "value": "60"},
         ]
     }
-    calls = await box.wait_calls(4)
-    assert calls == ["TriggerMessage", "GetConfiguration", "ChangeConfiguration", "ChangeConfiguration"]
-    changes = {c[3]["key"]: c[3]["value"] for c in box.received_calls[2:]}
+    calls = await box.wait_calls(6)
+    assert calls[3:] == ["GetConfiguration", "ChangeConfiguration", "ChangeConfiguration"]
+    changes = {c[3]["key"]: c[3]["value"] for c in box.received_calls[4:]}
     assert changes["MeterValueSampleInterval"] == "10"
     assert set(changes["MeterValuesSampledData"].split(",")) == {
         "Energy.Active.Import.Register",
@@ -429,7 +440,7 @@ async def test_settings_unknown_key_and_order(server: OcppServer, connect: Calla
         "unknownKey": ["MeterValueSampleInterval"],
     }
     await _connected(box)
-    assert [c[2] for c in box.received_calls] == ["TriggerMessage", "GetConfiguration"]
+    assert [c[2] for c in box.received_calls][3:] == ["GetConfiguration"]
 
 
 async def test_set_and_clear_limit(

@@ -62,7 +62,7 @@ async def connect(
             ws = await clients[0].ws_connect(f"{OCPP_PATH}/{cp_id}", protocols=("ocpp1.6",))
             box = Box(ws)
             boxes.append(box)
-            await box.wait_calls(2)  # status request + settings check
+            await box.wait_calls(4)  # status, boot, meter values, settings
             return box
 
         yield _connect
@@ -298,3 +298,26 @@ async def test_unload_withdraws_the_box(
     assert await box.closed()
     with pytest.raises(Exception, match="404"):
         await connect()
+
+
+async def test_model_and_firmware_survive_a_restart(
+    hass: HomeAssistant, loaded: MockConfigEntry, connect: Callable[..., Any]
+) -> None:
+    """The box reconnects after an HA restart without a BootNotification."""
+    box = await connect()
+    await _boot(box)
+    await _settle(hass)
+    assert await hass.config_entries.async_reload(loaded.entry_id)
+    await hass.async_block_till_done()
+    server: OcppServer = hass.data[DATA_OCPP]
+    server.states[CP].model = server.states[CP].firmware = None  # as after a restart
+    assert await hass.config_entries.async_reload(loaded.entry_id)
+    await hass.async_block_till_done()
+    assert (server.states[CP].model, server.states[CP].firmware) == ("AHP02-60327", "2.8.0")
+
+    box = await connect()
+    # firmware known again -> no BootNotification requested
+    assert [c[3].get("requestedMessage") for c in box.received_calls[:2]] == [
+        "StatusNotification",
+        "MeterValues",
+    ]

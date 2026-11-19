@@ -290,6 +290,15 @@ class ZeoChargePoint(ChargePoint):  # type: ignore[misc]
         """Ask the box to resend its status (after a reconnect HA knows nothing yet)."""
         await self.call(call.TriggerMessage(requested_message=MessageTrigger.status_notification))
 
+    async def async_request_boot(self) -> None:
+        """Ask for model and firmware; the box only sends them by itself after a reboot."""
+        if self.state.firmware is None:
+            await self.call(call.TriggerMessage(requested_message=MessageTrigger.boot_notification))
+
+    async def async_request_meter_values(self) -> None:
+        """Ask for one set of meter values (meter reading, voltage) also without a session."""
+        await self.call(call.TriggerMessage(requested_message=MessageTrigger.meter_values, connector_id=1))
+
     async def async_set_limit(self, amps: int, phases: int, valid_to: datetime | None = None) -> bool:
         """Limit connector 1 to `amps` on `phases`; 0 A pauses without ending the session."""
         profile = build_profile(amps, phases, valid_to)

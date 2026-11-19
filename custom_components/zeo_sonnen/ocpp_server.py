@@ -170,7 +170,12 @@ class OcppServer:
     async def _after_connect(self, cp: ZeoChargePoint) -> None:
         """Refresh the status and make sure the box reports what we need. Never fatal."""
         await asyncio.sleep(STATUS_REQUEST_DELAY)
-        for step in (cp.async_request_status, cp.async_ensure_configuration):
+        for step in (
+            cp.async_request_status,
+            cp.async_request_boot,
+            cp.async_request_meter_values,
+            cp.async_ensure_configuration,
+        ):
             try:
                 await step()
             except Exception as err:
