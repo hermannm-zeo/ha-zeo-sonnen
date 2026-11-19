@@ -9,12 +9,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.const import CONF_API_TOKEN, CONF_HOST, STATE_UNAVAILABLE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_restore_cache_with_extra_data
 
 from custom_components.zeo_sonnen import ocpp_server
 from custom_components.zeo_sonnen.const import DOMAIN
@@ -322,3 +322,57 @@ async def test_model_and_firmware_survive_a_restart(
         None,  # GetConfiguration
         "MeterValues",
     ]
+
+
+async def test_counter_reading_survives_a_restart(
+    hass: HomeAssistant, wallbox_entry: MockConfigEntry, mock_api: MagicMock, connect: Callable[..., Any]
+) -> None:
+    """The Alfen sends no meter values when idle: the last reading is kept over a restart."""
+    eid = "sensor.wallbox_meter"
+    er.async_get(hass).async_get_or_create(
+        "sensor", DOMAIN, f"{SERIAL}_wallbox_energy_total", suggested_object_id="wallbox_meter"
+    )
+    mock_restore_cache_with_extra_data(
+        hass, [(State(eid, "1234.5"), {"native_value": 1234.5, "native_unit_of_measurement": "kWh"})]
+    )
+    wallbox_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(wallbox_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(eid).state == STATE_UNAVAILABLE  # box not connected yet
+
+    box = await connect()
+    await _boot(box)
+    await _settle(hass)
+    assert float(hass.states.get(eid).state) == 1234.5
+
+    # a real value from the box wins
+    await box.result(
+        "MeterValues",
+        {
+            "connectorId": 1,
+            "meterValue": [
+                {
+                    "timestamp": dt_util.utcnow().isoformat(),
+                    "sampledValue": [_sv(1240000, "Energy.Active.Import.Register", "Wh")],
+                }
+            ],
+        },
+    )
+    await _settle(hass)
+    assert float(hass.states.get(eid).state) == 1240.0
+
+
+async def test_counter_reading_not_restored_when_unknown(
+    hass: HomeAssistant, wallbox_entry: MockConfigEntry, mock_api: MagicMock
+) -> None:
+    eid = "sensor.wallbox_meter"
+    er.async_get(hass).async_get_or_create(
+        "sensor", DOMAIN, f"{SERIAL}_wallbox_energy_total", suggested_object_id="wallbox_meter"
+    )
+    mock_restore_cache_with_extra_data(
+        hass, [(State(eid, "unknown"), {"native_value": None, "native_unit_of_measurement": "kWh"})]
+    )
+    wallbox_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(wallbox_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.data[DATA_OCPP].states[CP].energy_wh is None

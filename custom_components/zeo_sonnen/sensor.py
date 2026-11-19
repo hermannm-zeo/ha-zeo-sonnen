@@ -277,7 +277,10 @@ async def async_setup_entry(
             if field in meter:
                 entities.append(SonnenMeterEnergySensor(coordinator, direction, channel, field))
     if (cp_id := wallbox_id(entry)) is not None:
-        entities += [WallboxSensor(entry, cp_id, desc) for desc in WALLBOX_SENSORS]
+        entities += [
+            (WallboxMeterSensor if desc.key == "energy_total" else WallboxSensor)(entry, cp_id, desc)
+            for desc in WALLBOX_SENSORS
+        ]
     async_add_entities(entities)
 
 
@@ -493,3 +496,24 @@ class WallboxSensor(WallboxEntity, SensorEntity):
     def native_value(self) -> StateType | datetime:
         value: StateType | datetime = self.entity_description.value_fn(self.cp_state)
         return value
+
+
+class WallboxMeterSensor(WallboxSensor, RestoreSensor):
+    """Counter reading: keeps the last value over an HA restart.
+
+    The Alfen sends meter values only while charging, so without this the reading
+    would stay unknown until the next session.
+    """
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        state = self.cp_state
+        if state.energy_wh is not None:
+            return  # the box already sent a value
+        last = await self.async_get_last_sensor_data()
+        if last is None or last.native_value is None:
+            return
+        try:
+            state.energy_wh = float(last.native_value) * 1000
+        except (TypeError, ValueError):
+            return
