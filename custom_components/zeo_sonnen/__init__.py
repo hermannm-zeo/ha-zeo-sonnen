@@ -12,6 +12,7 @@ from .api import SonnenApi
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .coordinator import SonnenConfigEntry, SonnenCoordinator
 from .frontend import async_register_frontend, async_register_panel, async_remove_panel
+from .ocpp_server import async_setup_ocpp
 from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [
@@ -26,6 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_setup_services(hass)
+    async_setup_ocpp(hass)
     return True
 
 

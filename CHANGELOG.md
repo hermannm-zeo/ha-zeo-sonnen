@@ -1,5 +1,17 @@
 # Changelog
 
+## Unveröffentlicht
+
+### Neu
+- **Eigener OCPP-1.6J-Server** für den sonnenCharger 3 (Alfen Eve) auf dem HA-Port 8123: `ws://<HA-IP>:8123/api/zeo_sonnen/ocpp/` (die Box hängt ihre ID selbst an). Kein zusätzlicher Port, nur Verbindungen aus dem lokalen Netz, keine über Home Assistant Cloud
+- Verarbeitet Boot, Heartbeat, Status, Messwerte (Energie, Leistung und Strom je Phase, angebotener Strom, Spannung), Autorisierung und Ladevorgänge; setzt die Uhr der Box und merkt sich die Zeitabweichung
+- Fragt nach dem Verbinden den Status der Box ab
+- Noch ohne Entitäten und ohne Steuerung (folgt)
+- Regelkern `charge_logic.py` für die Lademodi Aus/Eco/Eco+/Power/Manuell mit Tests; Testaufbau als pyscript unter `tools/pyscript/`
+
+### Geändert
+- Neue Abhängigkeit `ocpp>=2.1.0`
+
 ## v0.5.0
 
 ### Neu
