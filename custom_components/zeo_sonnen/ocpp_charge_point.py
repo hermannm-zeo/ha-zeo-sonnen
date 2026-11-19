@@ -22,16 +22,38 @@ from ocpp.v16 import ChargePoint, call, call_result
 from ocpp.v16.enums import (
     Action,
     AuthorizationStatus,
+    ChargingProfileStatus,
+    ClearChargingProfileStatus,
+    ConfigurationStatus,
     DataTransferStatus,
     MessageTrigger,
     RegistrationStatus,
 )
+
+from .charge_logic import MAX_AMPS_1P, MIN_AMPS
 
 _LOGGER = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 60  # seconds, the box takes this from our BootNotification answer
 PHASES = ("L1", "L2", "L3")
 IN_TRANSACTION = ("Charging", "SuspendedEV", "SuspendedEVSE")
+PROFILE_ID = 101  # our one TxDefaultProfile; replaced on every change
+STACK_LEVEL = 1
+KEY_MEASURANDS = "MeterValuesSampledData"
+KEY_SAMPLE_INTERVAL = "MeterValueSampleInterval"
+# What the box should report while charging (the Alfen default is energy only).
+WANTED_CONFIGURATION = {
+    KEY_MEASURANDS: ",".join(
+        (
+            "Energy.Active.Import.Register",
+            "Current.Import",
+            "Current.Offered",
+            "Power.Active.Import",
+            "Voltage",
+        )
+    ),
+    KEY_SAMPLE_INTERVAL: "10",
+}
 
 
 def iso_now() -> str:
@@ -64,6 +86,10 @@ class ChargePointState:
     voltage_v: dict[str, float] = field(default_factory=dict)
     clock_offset_s: float | None = None  # box clock minus HA clock, from meter timestamps
     last_seen: datetime | None = None
+    limit_a: int | None = None  # our profile as last accepted by the box; None = no limit
+    limit_phases: int | None = None
+    limit_valid_to: datetime | None = None
+    configuration: dict[str, str | None] = field(default_factory=dict)
 
     @property
     def connector_status(self) -> str | None:
@@ -251,3 +277,88 @@ class ZeoChargePoint(ChargePoint):  # type: ignore[misc]
     async def async_request_status(self) -> None:
         """Ask the box to resend its status (after a reconnect HA knows nothing yet)."""
         await self.call(call.TriggerMessage(requested_message=MessageTrigger.status_notification))
+
+    async def async_set_limit(self, amps: int, phases: int, valid_to: datetime | None = None) -> bool:
+        """Limit connector 1 to `amps` on `phases`; 0 A pauses without ending the session."""
+        profile = build_profile(amps, phases, valid_to)
+        result = await self.call(
+            call.SetChargingProfile(connector_id=1, cs_charging_profiles=profile), suppress=False
+        )
+        accepted = result.status == ChargingProfileStatus.accepted
+        if accepted:
+            schedule = profile["charging_schedule"]["charging_schedule_period"][0]
+            self.state.limit_a, self.state.limit_phases = schedule["limit"], schedule["number_phases"]
+            self.state.limit_valid_to = valid_to
+            self._changed()
+        else:
+            _LOGGER.warning("OCPP %s: charging profile %s rejected (%s)", self.id, profile, result.status)
+        return accepted
+
+    async def async_clear_limit(self) -> bool:
+        """Remove our profile; the box falls back to its own maximum current."""
+        result = await self.call(call.ClearChargingProfile(id=PROFILE_ID), suppress=False)
+        # "Unknown" = there was no such profile, which is just as good
+        cleared = result.status in (ClearChargingProfileStatus.accepted, ClearChargingProfileStatus.unknown)
+        if cleared:
+            self.state.limit_a = self.state.limit_phases = self.state.limit_valid_to = None
+            self._changed()
+        return cleared
+
+    async def async_get_configuration(self, keys: list[str] | None = None) -> dict[str, str | None]:
+        result = await self.call(call.GetConfiguration(key=keys), suppress=False)
+        config = {item["key"]: item.get("value") for item in result.configuration_key or []}
+        self.state.configuration.update(config)
+        return config
+
+    async def async_change_configuration(self, key: str, value: str) -> str:
+        """Returns the box's answer: Accepted, RebootRequired, Rejected or NotSupported."""
+        result = await self.call(call.ChangeConfiguration(key=key, value=value), suppress=False)
+        status = str(result.status)
+        if status in (ConfigurationStatus.accepted, ConfigurationStatus.reboot_required):
+            self.state.configuration[key] = value
+        _LOGGER.info("OCPP %s: %s = %s -> %s", self.id, key, value, status)
+        return status
+
+    async def async_ensure_configuration(self) -> None:
+        """Write our meter value settings to the box, but only what differs (saves flash writes)."""
+        have = await self.async_get_configuration(list(WANTED_CONFIGURATION))
+        for key, want in WANTED_CONFIGURATION.items():
+            current = have.get(key)
+            if current is None:
+                continue  # key unknown to this box
+            if key == KEY_MEASURANDS and _csv(current) == _csv(want):
+                continue
+            if current == want:
+                continue
+            await self.async_change_configuration(key, want)
+
+
+def _csv(value: str) -> set[str]:
+    return {part.strip() for part in value.split(",") if part.strip()}
+
+
+def build_profile(amps: int, phases: int, valid_to: datetime | None = None) -> dict[str, Any]:
+    """TxDefaultProfile on connector 1 in ampere. The one place where the fail-safe is set.
+
+    `valid_to`: after this time the box drops the profile and charges with its own maximum
+    again, so a crashed Home Assistant never leaves the car paused (assumption, test A open).
+    """
+    if phases not in (1, 3):
+        raise ValueError(f"phases must be 1 or 3, not {phases}")
+    if amps != 0 and not amps >= MIN_AMPS:
+        raise ValueError(f"current must be 0 or at least {MIN_AMPS} A, not {amps}")
+    if phases == 1:
+        amps = min(amps, MAX_AMPS_1P)
+    profile: dict[str, Any] = {
+        "charging_profile_id": PROFILE_ID,
+        "stack_level": STACK_LEVEL,
+        "charging_profile_purpose": "TxDefaultProfile",
+        "charging_profile_kind": "Relative",
+        "charging_schedule": {
+            "charging_rate_unit": "A",
+            "charging_schedule_period": [{"start_period": 0, "limit": amps, "number_phases": phases}],
+        },
+    }
+    if valid_to is not None:
+        profile["valid_to"] = dt_util.as_utc(valid_to).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return profile

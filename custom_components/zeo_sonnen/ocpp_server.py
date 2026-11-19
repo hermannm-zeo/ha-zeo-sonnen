@@ -15,6 +15,7 @@ import ipaddress
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any
 
 from aiohttp import WSMsgType, web
@@ -39,6 +40,10 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,48}$")
 
 class ConnectionClosed(Exception):
     """The websocket is gone; ends ChargePoint.start()."""
+
+
+class NotConnectedError(Exception):
+    """The wallbox is not connected right now."""
 
 
 class _Connection:
@@ -120,15 +125,15 @@ class OcppServer:
         self._updated(state)
         _LOGGER.info("OCPP: %s connected from %s", cp_id, request.remote)
 
-        status_task = self.hass.async_create_background_task(
-            self._request_status(cp), f"{DOMAIN} ocpp status {cp_id}"
+        setup_task = self.hass.async_create_background_task(
+            self._after_connect(cp), f"{DOMAIN} ocpp setup {cp_id}"
         )
         try:
             await cp.start()
         except ConnectionClosed:
             pass
         finally:
-            status_task.cancel()
+            setup_task.cancel()
             if self._sockets.get(cp_id) is ws:
                 del self._sockets[cp_id]
                 self.charge_points.pop(cp_id, None)
@@ -137,12 +142,38 @@ class OcppServer:
                 _LOGGER.info("OCPP: %s disconnected", cp_id)
         return ws
 
-    async def _request_status(self, cp: ZeoChargePoint) -> None:
+    async def _after_connect(self, cp: ZeoChargePoint) -> None:
+        """Refresh the status and make sure the box reports what we need. Never fatal."""
         await asyncio.sleep(STATUS_REQUEST_DELAY)
-        try:
-            await cp.async_request_status()
-        except Exception as err:
-            _LOGGER.debug("OCPP %s: status request failed: %s", cp.id, err)
+        for step in (cp.async_request_status, cp.async_ensure_configuration):
+            try:
+                await step()
+            except Exception as err:
+                _LOGGER.warning("OCPP %s: %s failed: %s", cp.id, step.__name__, err)
+
+    # --- commands, used by the charge manager and the entities -----------------
+
+    def _cp(self, cp_id: str) -> ZeoChargePoint:
+        cp = self.charge_points.get(cp_id)
+        if cp is None:
+            raise NotConnectedError(cp_id)
+        return cp
+
+    async def async_set_limit(
+        self, cp_id: str, amps: int, phases: int, valid_to: datetime | None = None
+    ) -> bool:
+        return await self._cp(cp_id).async_set_limit(amps, phases, valid_to)
+
+    async def async_clear_limit(self, cp_id: str) -> bool:
+        return await self._cp(cp_id).async_clear_limit()
+
+    async def async_get_configuration(
+        self, cp_id: str, keys: list[str] | None = None
+    ) -> dict[str, str | None]:
+        return await self._cp(cp_id).async_get_configuration(keys)
+
+    async def async_change_configuration(self, cp_id: str, key: str, value: str) -> str:
+        return await self._cp(cp_id).async_change_configuration(key, value)
 
     async def async_close(self, *_: Any) -> None:
         for ws in list(self._sockets.values()):

@@ -15,9 +15,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
+from ocpp.exceptions import NotSupportedError
 
 from custom_components.zeo_sonnen import ocpp_server
 from custom_components.zeo_sonnen.const import DOMAIN
+from custom_components.zeo_sonnen.ocpp_charge_point import build_profile
 from custom_components.zeo_sonnen.ocpp_server import (
     DATA_OCPP,
     OCPP_PATH,
@@ -30,32 +32,81 @@ from custom_components.zeo_sonnen.ocpp_server import (
 CP = "ACE0871215"
 
 
+GOOD_CONFIG = [
+    {
+        "key": "MeterValuesSampledData",
+        "readonly": False,
+        "value": ",".join(
+            [
+                "Energy.Active.Import.Register",
+                "Current.Import",
+                "Current.Offered",
+                "Power.Active.Import",
+                "Voltage",
+            ]
+        ),
+    },
+    {"key": "MeterValueSampleInterval", "readonly": False, "value": "10"},
+]
+CALL_ERROR = object()  # answer a request with a CallError
+
+
 class Box:
-    """Minimal charge point: sends CALLs, answers the CALLs of the central system."""
+    """Minimal charge point: sends CALLs and answers the CALLs of the central system.
+
+    A reader task runs all the time, so the box also answers requests while it is idle.
+    """
 
     def __init__(self, ws: ClientWebSocketResponse) -> None:
         self.ws = ws
         self._ids = itertools.count(1)
+        self._pending: dict[str, asyncio.Future[list[Any]]] = {}
         self.received_calls: list[list[Any]] = []
+        self.answers: dict[str, Any] = {
+            "GetConfiguration": {"configurationKey": GOOD_CONFIG},
+        }
+        self.reader = asyncio.ensure_future(self._read())
 
-    async def call(self, action: str, payload: dict[str, Any]) -> list[Any]:
-        uid = str(next(self._ids))
-        await self.ws.send_str(json.dumps([2, uid, action, payload]))
-        while True:
-            msg = await asyncio.wait_for(self.ws.receive(), 5)
-            assert msg.type == WSMsgType.TEXT, msg
+    async def _read(self) -> None:
+        async for msg in self.ws:
+            if msg.type != WSMsgType.TEXT:
+                break
             frame = json.loads(msg.data)
             if frame[0] == 2:  # request from the central system
                 self.received_calls.append(frame)
-                await self.ws.send_str(json.dumps([3, frame[1], {"status": "Accepted"}]))
-                continue
-            assert frame[1] == uid
-            return frame
+                answer = self.answers.get(frame[2], {"status": "Accepted"})
+                if callable(answer):
+                    answer = answer(frame[3])
+                if answer is CALL_ERROR:
+                    reply = [4, frame[1], "NotSupported", "not here", {}]
+                else:
+                    reply = [3, frame[1], answer]
+                await self.ws.send_str(json.dumps(reply))
+            elif (fut := self._pending.pop(frame[1], None)) is not None:
+                fut.set_result(frame)
+
+    async def call(self, action: str, payload: dict[str, Any]) -> list[Any]:
+        uid = str(next(self._ids))
+        fut: asyncio.Future[list[Any]] = asyncio.get_running_loop().create_future()
+        self._pending[uid] = fut
+        await self.ws.send_str(json.dumps([2, uid, action, payload]))
+        return await asyncio.wait_for(fut, 5)
 
     async def result(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         frame = await self.call(action, payload)
         assert frame[0] == 3, frame
         return frame[2]
+
+    async def wait_calls(self, count: int) -> list[str]:
+        for _ in range(200):
+            if len(self.received_calls) >= count:
+                break
+            await asyncio.sleep(0.01)
+        return [c[2] for c in self.received_calls]
+
+    async def closed(self) -> bool:
+        await asyncio.wait_for(self.reader, 5)
+        return self.ws.closed
 
 
 @pytest.fixture
@@ -132,10 +183,12 @@ async def test_session(hass: HomeAssistant, server: OcppServer, connect: Callabl
         "2.8.0",
     )
 
-    # The central system asks for the status right after connecting.
-    await box.result("Heartbeat", {})
-    assert [c[2] for c in box.received_calls] == ["TriggerMessage"]
+    # Right after connecting the central system asks for the status and checks the settings.
+    assert await box.wait_calls(2) == ["TriggerMessage", "GetConfiguration"]
     assert box.received_calls[0][3] == {"requestedMessage": "StatusNotification"}
+    assert set(box.received_calls[1][3]["key"]) == {"MeterValuesSampledData", "MeterValueSampleInterval"}
+    await box.result("Heartbeat", {})
+    assert len(box.received_calls) == 2  # settings already right: nothing written
 
     await box.result("StatusNotification", {"connectorId": 0, "errorCode": "NoError", "status": "Available"})
     await box.result("StatusNotification", {"connectorId": 1, "errorCode": "NoError", "status": "Preparing"})
@@ -208,6 +261,7 @@ async def test_session(hass: HomeAssistant, server: OcppServer, connect: Callabl
     assert await box.result("DiagnosticsStatusNotification", {"status": "Idle"}) == {}
 
     await box.ws.close()
+    await box.closed()
     await _settle(hass)
     assert not state.connected
     assert CP not in server.charge_points
@@ -250,8 +304,7 @@ async def test_reconnect_replaces_old_connection(server: OcppServer, connect: Ca
     await first.result("Heartbeat", {})
     second = await connect()
     await second.result("Heartbeat", {})
-    msg = await asyncio.wait_for(first.ws.receive(), 5)
-    assert msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
+    assert await first.closed()
     assert server.states[CP].connected
 
 
@@ -272,8 +325,7 @@ async def test_server_closes_sockets(
     box = await connect()
     await box.result("Heartbeat", {})
     await server.async_close()
-    msg = await asyncio.wait_for(box.ws.receive(), 5)
-    assert msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
+    assert await box.closed()
     await _settle(hass)
     assert not server.states[CP].connected
 
@@ -326,3 +378,157 @@ async def test_setup_once_and_transaction_ids(hass: HomeAssistant, server: OcppS
         second = server.next_transaction_id()
     assert first == 1_800_000_000
     assert second == first + 1
+
+
+# --- step 2: commands to the box ---------------------------------------------
+
+
+async def _connected(box: Box) -> None:
+    """Wait until the setup after connecting (status, settings) is done."""
+    await box.wait_calls(2)
+    await box.result("Heartbeat", {})
+
+
+async def test_settings_are_written_when_different(server: OcppServer, connect: Callable[..., Any]) -> None:
+    box = await connect()
+    box.answers["GetConfiguration"] = {
+        "configurationKey": [
+            {"key": "MeterValuesSampledData", "readonly": False, "value": "Energy.Active.Import.Register"},
+            {"key": "MeterValueSampleInterval", "readonly": False, "value": "60"},
+        ]
+    }
+    calls = await box.wait_calls(4)
+    assert calls == ["TriggerMessage", "GetConfiguration", "ChangeConfiguration", "ChangeConfiguration"]
+    changes = {c[3]["key"]: c[3]["value"] for c in box.received_calls[2:]}
+    assert changes["MeterValueSampleInterval"] == "10"
+    assert set(changes["MeterValuesSampledData"].split(",")) == {
+        "Energy.Active.Import.Register",
+        "Current.Import",
+        "Current.Offered",
+        "Power.Active.Import",
+        "Voltage",
+    }
+    assert server.states[CP].configuration["MeterValueSampleInterval"] == "10"
+
+
+async def test_settings_unknown_key_and_order(server: OcppServer, connect: Callable[..., Any]) -> None:
+    """Same measurands in another order count as equal; keys the box does not know are skipped."""
+    box = await connect()
+    box.answers["GetConfiguration"] = {
+        "configurationKey": [
+            {
+                "key": "MeterValuesSampledData",
+                "readonly": False,
+                "value": "Voltage, Power.Active.Import,Current.Offered,"
+                "Current.Import,Energy.Active.Import.Register",
+            }
+        ],
+        "unknownKey": ["MeterValueSampleInterval"],
+    }
+    await _connected(box)
+    assert [c[2] for c in box.received_calls] == ["TriggerMessage", "GetConfiguration"]
+
+
+async def test_set_and_clear_limit(
+    hass: HomeAssistant, server: OcppServer, connect: Callable[..., Any]
+) -> None:
+    box = await connect()
+    await _connected(box)
+    updates: list[str] = []
+    async_dispatcher_connect(hass, SIGNAL_OCPP_UPDATE, updates.append)
+    valid_to = dt_util.parse_datetime("2026-11-20T10:05:00+01:00")
+
+    assert await server.async_set_limit(CP, 10, 3, valid_to)
+    frame = box.received_calls[-1]
+    assert frame[2] == "SetChargingProfile"
+    assert frame[3] == {
+        "connectorId": 1,
+        "csChargingProfiles": {
+            "chargingProfileId": 101,
+            "stackLevel": 1,
+            "chargingProfilePurpose": "TxDefaultProfile",
+            "chargingProfileKind": "Relative",
+            "validTo": "2026-11-20T09:05:00Z",
+            "chargingSchedule": {
+                "chargingRateUnit": "A",
+                "chargingSchedulePeriod": [{"startPeriod": 0, "limit": 10, "numberPhases": 3}],
+            },
+        },
+    }
+    state = server.states[CP]
+    assert (state.limit_a, state.limit_phases, state.limit_valid_to) == (10, 3, valid_to)
+    await _settle(hass)
+    assert updates == [CP]
+
+    # single phase never above 16 A, pause with 0 A, no validTo when not given
+    assert await server.async_set_limit(CP, 32, 1)
+    profile = box.received_calls[-1][3]["csChargingProfiles"]
+    assert profile["chargingSchedule"]["chargingSchedulePeriod"][0] == {
+        "startPeriod": 0,
+        "limit": 16,
+        "numberPhases": 1,
+    }
+    assert "validTo" not in profile
+    assert await server.async_set_limit(CP, 0, 3)
+    assert state.limit_a == 0
+
+    assert await server.async_clear_limit(CP)
+    assert box.received_calls[-1][2:] == ["ClearChargingProfile", {"id": 101}]
+    assert state.limit_a is None and state.limit_phases is None and state.limit_valid_to is None
+
+    box.answers["ClearChargingProfile"] = {"status": "Unknown"}  # nothing to clear: also fine
+    assert await server.async_clear_limit(CP)
+
+
+async def test_rejected_commands(server: OcppServer, connect: Callable[..., Any]) -> None:
+    box = await connect()
+    await _connected(box)
+    assert await server.async_set_limit(CP, 10, 3)
+
+    box.answers["SetChargingProfile"] = {"status": "Rejected"}
+    assert not await server.async_set_limit(CP, 8, 1)
+    assert server.states[CP].limit_a == 10  # unchanged
+
+    box.answers["ChangeConfiguration"] = {"status": "Rejected"}
+    assert await server.async_change_configuration(CP, "Station-MaxCurrent", "16") == "Rejected"
+    assert "Station-MaxCurrent" not in server.states[CP].configuration
+
+    box.answers["ChangeConfiguration"] = {"status": "RebootRequired"}
+    assert await server.async_change_configuration(CP, "Station-MaxCurrent", "16") == "RebootRequired"
+    assert server.states[CP].configuration["Station-MaxCurrent"] == "16"
+
+    box.answers["SetChargingProfile"] = CALL_ERROR
+    with pytest.raises(NotSupportedError):
+        await server.async_set_limit(CP, 8, 3)
+
+
+async def test_get_configuration(server: OcppServer, connect: Callable[..., Any]) -> None:
+    box = await connect()
+    await _connected(box)
+    box.answers["GetConfiguration"] = {
+        "configurationKey": [
+            {"key": "Station-MaxCurrent", "readonly": False, "value": "16"},
+            {"key": "ChargePointId", "readonly": True},
+        ]
+    }
+    config = await server.async_get_configuration(CP, ["Station-MaxCurrent", "ChargePointId"])
+    assert config == {"Station-MaxCurrent": "16", "ChargePointId": None}
+    assert box.received_calls[-1][3] == {"key": ["Station-MaxCurrent", "ChargePointId"]}
+
+
+@pytest.mark.usefixtures("server")
+async def test_commands_need_a_connection(server: OcppServer) -> None:
+    with pytest.raises(ocpp_server.NotConnectedError):
+        await server.async_set_limit(CP, 10, 3)
+    with pytest.raises(ocpp_server.NotConnectedError):
+        await server.async_clear_limit(CP)
+    with pytest.raises(ocpp_server.NotConnectedError):
+        await server.async_get_configuration(CP)
+    with pytest.raises(ocpp_server.NotConnectedError):
+        await server.async_change_configuration(CP, "x", "y")
+
+
+@pytest.mark.parametrize(("amps", "phases"), [(3, 3), (-1, 3), (10, 2)])
+def test_profile_validation(amps: int, phases: int) -> None:
+    with pytest.raises(ValueError):
+        build_profile(amps, phases)
