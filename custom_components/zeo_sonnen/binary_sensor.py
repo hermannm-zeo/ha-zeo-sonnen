@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .coordinator import SonnenConfigEntry, SonnenCoordinator, SonnenData
 from .entity import SonnenEntity
 from .status_flags import has_problem
+from .wallbox import WallboxDescription, WallboxEntity, wallbox_id
 
 PARALLEL_UPDATES = 0
 
@@ -85,9 +86,12 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(
+    entities: list[BinarySensorEntity] = [
         SonnenBinarySensor(coordinator, desc) for desc in BINARY_SENSORS if desc.exists_fn(coordinator.data)
-    )
+    ]
+    if (cp_id := wallbox_id(entry)) is not None:
+        entities.append(WallboxBinarySensor(entry, cp_id, WALLBOX_CONNECTED))
+    async_add_entities(entities)
 
 
 class SonnenBinarySensor(SonnenEntity, BinarySensorEntity):
@@ -100,3 +104,32 @@ class SonnenBinarySensor(SonnenEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         return self.entity_description.value_fn(self.coordinator.data)
+
+
+# --- wallbox ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class WallboxBinarySensorDescription(WallboxDescription, BinarySensorEntityDescription):
+    """Wallbox binary sensor."""
+
+
+WALLBOX_CONNECTED = WallboxBinarySensorDescription(
+    key="connected",
+    translation_key="wallbox_connected",
+    device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    value_fn=lambda s: s.connected,
+)
+
+
+class WallboxBinarySensor(WallboxEntity, BinarySensorEntity):
+    entity_description: WallboxBinarySensorDescription
+
+    @property
+    def available(self) -> bool:
+        return True  # "not connected" is a valid answer, not an unknown one
+
+    @property
+    def is_on(self) -> bool | None:
+        value: bool | None = self.entity_description.value_fn(self.cp_state)
+        return value

@@ -67,18 +67,23 @@
           "scan_interval": "Update interval",
           "model": "Model",
           "protect": "Backup unit (sonnenProtect)",
-          "dashboard": "Dashboard"
+          "dashboard": "Dashboard",
+          "wallbox_id": "Wallbox charge point id",
+          "wallbox_max_current": "Wallbox maximum current"
         },
         "data_description": {
           "scan_interval": "Seconds between readings. Shorter intervals make the energy counters more accurate.",
           "model": "Determines the housing colour shown in the dashboard.",
           "protect": "Backup power: Performance with Protect 8000, Performance+ (built in), sonnenBatterie 10 with Protect 4000. Only then the dashboard offers the backup reserve.",
-          "dashboard": "Which view appears in the sidebar. Classic = portal in the style of my.sonnen, Modern = house view with energy flow."
+          "dashboard": "Which view appears in the sidebar. Classic = portal in the style of my.sonnen, Modern = house view with energy flow.",
+          "wallbox_id": "OCPP id of the sonnenCharger 3, usually its serial number (e.g. ACE0871215). Empty = no wallbox. In the Alfen ACE Service Installer set the CSMS URL to ws://<Home Assistant IP>:8123/api/zeo_sonnen/ocpp/ and restart the wallbox.",
+          "wallbox_max_current": "Highest current per phase the wallbox may use, as the supply line allows (e.g. 16 A at B16)."
         }
       }
     },
     "error": {
-      "protect_mismatch": "This Protect does not fit the model. Protect 8000 goes with the Performance, Protect 4000 with the sonnenBatterie 10. The Performance+ has backup built in, hybrid has none."
+      "protect_mismatch": "This Protect does not fit the model. Protect 8000 goes with the Performance, Protect 4000 with the sonnenBatterie 10. The Performance+ has backup built in, hybrid has none.",
+      "invalid_wallbox_id": "Only letters, digits and . _ : - are allowed (at most 48 characters)."
     }
   },
   "entity": {
@@ -97,6 +102,9 @@
       },
       "discharge_not_allowed": {
         "name": "Discharge not allowed"
+      },
+      "wallbox_connected": {
+        "name": "Connected"
       }
     },
     "number": {
@@ -224,6 +232,50 @@
       },
       "installed_capacity": {
         "name": "Installed capacity"
+      },
+      "wallbox_status": {
+        "name": "Status"
+      },
+      "wallbox_power": {
+        "name": "Power"
+      },
+      "wallbox_current": {
+        "name": "Current"
+      },
+      "wallbox_current_offered": {
+        "name": "Offered current"
+      },
+      "wallbox_voltage": {
+        "name": "Voltage"
+      },
+      "wallbox_energy_total": {
+        "name": "Energy meter"
+      },
+      "wallbox_session_energy": {
+        "name": "Session energy"
+      },
+      "wallbox_session_duration": {
+        "name": "Session duration"
+      },
+      "wallbox_stop_reason": {
+        "name": "Last stop reason"
+      },
+      "wallbox_limit": {
+        "name": "Current limit"
+      },
+      "wallbox_error_code": {
+        "name": "Error code"
+      },
+      "wallbox_clock_offset": {
+        "name": "Clock offset"
+      },
+      "wallbox_last_seen": {
+        "name": "Last message"
+      }
+    },
+    "switch": {
+      "wallbox_available": {
+        "name": "Released"
       }
     }
   },

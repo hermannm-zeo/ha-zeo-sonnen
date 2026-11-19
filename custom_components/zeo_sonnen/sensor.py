@@ -17,10 +17,12 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
+    UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -32,6 +34,20 @@ from .coordinator import SonnenConfigEntry, SonnenCoordinator, SonnenData
 from .energy import FLOWS, EnergyIntegrator, split_flows, to_float
 from .entity import SonnenEntity
 from .status_flags import LED_OPTIONS, shutdown_reason, status_led
+from .wallbox import (
+    WallboxDescription,
+    WallboxEntity,
+    current_attrs,
+    current_value,
+    kwh,
+    limit_attrs,
+    power_attrs,
+    power_value,
+    session_minutes,
+    voltage_attrs,
+    voltage_value,
+    wallbox_id,
+)
 
 PARALLEL_UPDATES = 0
 
@@ -260,6 +276,8 @@ async def async_setup_entry(
         for field in ("kwh_imported", "kwh_exported"):
             if field in meter:
                 entities.append(SonnenMeterEnergySensor(coordinator, direction, channel, field))
+    if (cp_id := wallbox_id(entry)) is not None:
+        entities += [WallboxSensor(entry, cp_id, desc) for desc in WALLBOX_SENSORS]
     async_add_entities(entities)
 
 
@@ -352,3 +370,126 @@ class SonnenMeterEnergySensor(SonnenEntity, SensorEntity):
                 # look like a counter reset and double the next day's total.
                 return value if value else None
         return None
+
+
+# --- wallbox (sonnenCharger 3 via our OCPP server) --------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class WallboxSensorDescription(WallboxDescription, SensorEntityDescription):
+    """Wallbox sensor: value from the charge point state."""
+
+
+WALLBOX_SENSORS: tuple[WallboxSensorDescription, ...] = (
+    WallboxSensorDescription(
+        key="status", translation_key="wallbox_status", value_fn=lambda s: s.connector_status
+    ),
+    WallboxSensorDescription(
+        key="power",
+        translation_key="wallbox_power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=power_value,
+        attrs_fn=power_attrs,
+    ),
+    WallboxSensorDescription(
+        key="current",
+        translation_key="wallbox_current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=current_value,
+        attrs_fn=current_attrs,
+    ),
+    WallboxSensorDescription(
+        key="current_offered",
+        translation_key="wallbox_current_offered",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda s: s.current_offered_a,
+    ),
+    WallboxSensorDescription(
+        key="voltage",
+        translation_key="wallbox_voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=0,
+        value_fn=voltage_value,
+        attrs_fn=voltage_attrs,
+    ),
+    WallboxSensorDescription(
+        key="energy_total",
+        translation_key="wallbox_energy_total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda s: kwh(s.energy_wh),
+    ),
+    WallboxSensorDescription(
+        key="session_energy",
+        translation_key="wallbox_session_energy",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        suggested_display_precision=2,
+        value_fn=lambda s: kwh(s.session_energy_wh),
+    ),
+    WallboxSensorDescription(
+        key="session_duration",
+        translation_key="wallbox_session_duration",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        device_class=SensorDeviceClass.DURATION,
+        suggested_display_precision=0,
+        value_fn=session_minutes,
+    ),
+    WallboxSensorDescription(
+        key="stop_reason", translation_key="wallbox_stop_reason", value_fn=lambda s: s.last_stop_reason
+    ),
+    WallboxSensorDescription(
+        key="limit",
+        translation_key="wallbox_limit",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        suggested_display_precision=0,
+        value_fn=lambda s: s.limit_a,
+        attrs_fn=limit_attrs,
+    ),
+    WallboxSensorDescription(
+        key="error_code",
+        translation_key="wallbox_error_code",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.error_code,
+    ),
+    WallboxSensorDescription(
+        key="clock_offset",
+        translation_key="wallbox_clock_offset",
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        device_class=SensorDeviceClass.DURATION,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=0,
+        value_fn=lambda s: s.clock_offset_s,
+    ),
+    WallboxSensorDescription(
+        key="last_seen",
+        translation_key="wallbox_last_seen",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.last_seen,
+    ),
+)
+
+
+class WallboxSensor(WallboxEntity, SensorEntity):
+    entity_description: WallboxSensorDescription
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        value: StateType | datetime = self.entity_description.value_fn(self.cp_state)
+        return value

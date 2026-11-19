@@ -36,6 +36,8 @@ from .const import (
 )
 from .coordinator import SonnenConfigEntry
 from .schema import vol
+from .wallbox import UNIQUE_INFIX, wallbox_id, wallbox_max_current
+from .wallbox import server as wallbox_server
 
 _DATA_REGISTERED = f"{DOMAIN}_frontend_registered"
 
@@ -149,6 +151,32 @@ def entity_map(hass: HomeAssistant, entry: SonnenConfigEntry) -> dict[str, str]:
     return result
 
 
+def wallbox_info(hass: HomeAssistant, entry: SonnenConfigEntry) -> dict[str, Any] | None:
+    """Wallbox id, limits, device data and card key -> entity_id; None without a wallbox."""
+    cp_id = wallbox_id(entry)
+    if cp_id is None:
+        return None
+    prefix = f"{entry.runtime_data.serial}{UNIQUE_INFIX}"
+    entities = {
+        reg.unique_id[len(prefix) :]: reg.entity_id
+        for reg in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if reg.unique_id.startswith(prefix)
+    }
+    state = wallbox_server(hass).states.get(cp_id)
+    return {
+        "charge_point_id": cp_id,
+        "max_current": wallbox_max_current(entry),
+        "connected": bool(state and state.connected),
+        "device": {
+            "vendor": state.vendor if state else None,
+            "model": state.model if state else None,
+            "firmware": state.firmware if state else None,
+            "serial": (state.serial if state else None) or cp_id,
+        },
+        "entities": entities,
+    }
+
+
 @websocket_api.websocket_command(
     {
         "type": "zeo_sonnen/info",
@@ -180,5 +208,6 @@ def ws_info(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg
             "backup": coordinator.has_backup,
             "serial": coordinator.serial,
             "entities": entity_map(hass, entry),
+            "wallbox": wallbox_info(hass, entry),
         },
     )

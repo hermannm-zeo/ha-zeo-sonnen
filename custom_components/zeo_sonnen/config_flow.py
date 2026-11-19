@@ -4,6 +4,7 @@ replaced power unit) and options."""
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -36,11 +37,14 @@ from .const import (
     CONF_KEY_SERIAL,
     CONF_MODEL,
     CONF_PROTECT,
+    CONF_WALLBOX_ID,
+    CONF_WALLBOX_MAX_CURRENT,
     DASHBOARDS,
     DEFAULT_DASHBOARD,
     DEFAULT_MODEL,
     DEFAULT_PROTECT,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_WALLBOX_MAX_CURRENT,
     DOMAIN,
     LEGACY_DASHBOARD,
     MAX_SCAN_INTERVAL,
@@ -65,9 +69,15 @@ _DASHBOARD_SELECTOR = SelectSelector(
 )
 
 
+_WALLBOX_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,48}$")  # same rule as the OCPP server
+
+
 def _hardware_errors(user_input: Mapping[str, Any]) -> dict[str, str]:
     if not protect_fits(user_input[CONF_MODEL], user_input[CONF_PROTECT]):
         return {CONF_PROTECT: "protect_mismatch"}
+    wallbox = str(user_input.get(CONF_WALLBOX_ID) or "").strip()
+    if wallbox and not _WALLBOX_ID_RE.match(wallbox):
+        return {CONF_WALLBOX_ID: "invalid_wallbox_id"}
     return {}
 
 
@@ -225,6 +235,8 @@ class SonnenOptionsFlow(OptionsFlow):
                         CONF_MODEL: user_input[CONF_MODEL],
                         CONF_PROTECT: user_input[CONF_PROTECT],
                         CONF_DASHBOARD: user_input[CONF_DASHBOARD],
+                        CONF_WALLBOX_ID: str(user_input.get(CONF_WALLBOX_ID) or "").strip(),
+                        CONF_WALLBOX_MAX_CURRENT: int(user_input[CONF_WALLBOX_MAX_CURRENT]),
                     }
                 )
         entry = self.config_entry
@@ -232,10 +244,14 @@ class SonnenOptionsFlow(OptionsFlow):
         model = entry.options.get(CONF_MODEL, entry.data.get(CONF_MODEL, DEFAULT_MODEL))
         protect = entry.options.get(CONF_PROTECT, entry.data.get(CONF_PROTECT, DEFAULT_PROTECT))
         dashboard = entry.options.get(CONF_DASHBOARD, entry.data.get(CONF_DASHBOARD, LEGACY_DASHBOARD))
+        wallbox = entry.options.get(CONF_WALLBOX_ID, "")
+        max_current = entry.options.get(CONF_WALLBOX_MAX_CURRENT, DEFAULT_WALLBOX_MAX_CURRENT)
         if user_input is not None:
             current = user_input[CONF_SCAN_INTERVAL]
             model, protect = user_input[CONF_MODEL], user_input[CONF_PROTECT]
             dashboard = user_input[CONF_DASHBOARD]
+            wallbox = user_input.get(CONF_WALLBOX_ID, "")
+            max_current = user_input[CONF_WALLBOX_MAX_CURRENT]
         return self.async_show_form(
             step_id="init",
             errors=errors,
@@ -251,6 +267,12 @@ class SonnenOptionsFlow(OptionsFlow):
                             step=1,
                             unit_of_measurement="s",
                             mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(CONF_WALLBOX_ID, description={"suggested_value": wallbox}): TextSelector(),
+                    vol.Required(CONF_WALLBOX_MAX_CURRENT, default=max_current): NumberSelector(
+                        NumberSelectorConfig(
+                            min=6, max=32, step=1, unit_of_measurement="A", mode=NumberSelectorMode.BOX
                         )
                     ),
                 }

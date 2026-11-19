@@ -22,6 +22,8 @@ from ocpp.v16 import ChargePoint, call, call_result
 from ocpp.v16.enums import (
     Action,
     AuthorizationStatus,
+    AvailabilityStatus,
+    AvailabilityType,
     ChargingProfileStatus,
     ClearChargingProfileStatus,
     ConfigurationStatus,
@@ -77,6 +79,7 @@ class ChargePointState:
     id_tag: str | None = None
     meter_start_wh: float | None = None
     session_start: datetime | None = None
+    session_end: datetime | None = None
     last_stop_reason: str | None = None
     energy_wh: float | None = None  # Energy.Active.Import.Register
     power_w: float | None = None
@@ -104,6 +107,13 @@ class ChargePointState:
         if self.energy_wh is None or self.meter_start_wh is None or self.transaction_id is None:
             return None
         return max(0.0, self.energy_wh - self.meter_start_wh)
+
+    @property
+    def operative(self) -> bool | None:
+        """False when the box was set inoperative (status Unavailable on connector 0)."""
+        if 0 not in self.status:
+            return None
+        return self.status[0] != "Unavailable"
 
     @property
     def active_phases(self) -> int:
@@ -197,6 +207,7 @@ class ZeoChargePoint(ChargePoint):  # type: ignore[misc]
         s.transaction_id = self._next_tx()
         s.id_tag, s.meter_start_wh = id_tag, float(meter_start)
         s.session_start = dt_util.parse_datetime(timestamp) or dt_util.utcnow()
+        s.session_end = None
         s.energy_wh = float(meter_start)
         _LOGGER.info("OCPP %s: transaction %s started", self.id, s.transaction_id)
         self._changed()
@@ -211,6 +222,7 @@ class ZeoChargePoint(ChargePoint):  # type: ignore[misc]
         s = self.state
         s.energy_wh = float(meter_stop)
         s.last_stop_reason = kwargs.get("reason") or "Local"
+        s.session_end = dt_util.parse_datetime(timestamp) or dt_util.utcnow()
         _LOGGER.info("OCPP %s: transaction %s stopped (%s)", self.id, transaction_id, s.last_stop_reason)
         s.transaction_id = None
         s.power_w, s.power_phase_w, s.current_a = 0.0, {}, {}
@@ -318,6 +330,13 @@ class ZeoChargePoint(ChargePoint):  # type: ignore[misc]
             self.state.configuration[key] = value
         _LOGGER.info("OCPP %s: %s = %s -> %s", self.id, key, value, status)
         return status
+
+    async def async_set_operative(self, operative: bool) -> bool:
+        """Release or block the whole box (ChangeAvailability on connector 0)."""
+        kind = AvailabilityType.operative if operative else AvailabilityType.inoperative
+        result = await self.call(call.ChangeAvailability(connector_id=0, type=kind), suppress=False)
+        # "Scheduled" = takes effect after the running session
+        return result.status in (AvailabilityStatus.accepted, AvailabilityStatus.scheduled)
 
     async def async_ensure_configuration(self) -> None:
         """Write our meter value settings to the box, but only what differs (saves flash writes)."""

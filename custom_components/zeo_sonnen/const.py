@@ -79,3 +79,8 @@ DEFAULT_DASHBOARD: Final = "modern"
 LEGACY_DASHBOARD: Final = "classic"
 PANEL_TITLES: Final = {"classic": "sonnenBatterie Classic", "modern": "sonnenBatterie Modern"}
 PANEL_ICONS: Final = {"classic": PANEL_ICON, "modern": "mdi:home-battery"}
+
+# Wallbox (sonnenCharger 3 / Alfen via our own OCPP server). Empty id = no wallbox.
+CONF_WALLBOX_ID: Final = "wallbox_id"
+CONF_WALLBOX_MAX_CURRENT: Final = "wallbox_max_current"
+DEFAULT_WALLBOX_MAX_CURRENT: Final = 16

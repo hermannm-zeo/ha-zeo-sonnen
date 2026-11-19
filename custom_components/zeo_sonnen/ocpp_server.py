@@ -15,6 +15,7 @@ import ipaddress
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -76,14 +77,34 @@ def remote_allowed(hass: HomeAssistant, remote: str | None) -> bool:
 
 
 class OcppServer:
-    """Keeps the connected boxes and their last known state."""
+    """Keeps the connected boxes and their last known state.
+
+    Only boxes set up in an entry (option "Ladepunkt-ID") may connect; the id is matched
+    without regard to case and the configured spelling is used from then on.
+    """
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
+        self._allowed: dict[str, str] = {}  # casefold -> configured id
         self.states: dict[str, ChargePointState] = {}
         self.charge_points: dict[str, ZeoChargePoint] = {}
         self._sockets: dict[str, web.WebSocketResponse] = {}
         self._last_tx = 0
+
+    @callback
+    def async_allow(self, cp_id: str) -> Callable[[], None]:
+        """Accept this box from now on; returns a function that withdraws it again."""
+        self._allowed[cp_id.casefold()] = cp_id
+        self.states.setdefault(cp_id, ChargePointState(cp_id))
+
+        @callback
+        def _remove() -> None:
+            if self._allowed.get(cp_id.casefold()) == cp_id:
+                del self._allowed[cp_id.casefold()]
+            if (ws := self._sockets.get(cp_id)) is not None:
+                self.hass.async_create_task(ws.close())
+
+        return _remove
 
     def next_transaction_id(self) -> int:
         """Unique and increasing across HA restarts (seconds since epoch, fits in int32 until 2038)."""
@@ -100,6 +121,10 @@ class OcppServer:
         if not remote_allowed(self.hass, request.remote):
             _LOGGER.warning("OCPP: refused %s from %s (LAN only)", cp_id, request.remote)
             return web.Response(status=403)
+        if (known := self._allowed.get(cp_id.casefold())) is None:
+            _LOGGER.warning("OCPP: refused %s from %s (not set up as wallbox)", cp_id, request.remote)
+            return web.Response(status=404)
+        cp_id = known
         offered = [
             p.strip() for p in request.headers.get("Sec-WebSocket-Protocol", "").split(",") if p.strip()
         ]
@@ -174,6 +199,9 @@ class OcppServer:
 
     async def async_change_configuration(self, cp_id: str, key: str, value: str) -> str:
         return await self._cp(cp_id).async_change_configuration(key, value)
+
+    async def async_set_operative(self, cp_id: str, operative: bool) -> bool:
+        return await self._cp(cp_id).async_set_operative(operative)
 
     async def async_close(self, *_: Any) -> None:
         for ws in list(self._sockets.values()):

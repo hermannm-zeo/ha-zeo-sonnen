@@ -116,6 +116,32 @@
       },
       "installed_capacity": {
         "default": "mdi:battery-outline"
+      },
+      "wallbox_status": {
+        "default": "mdi:ev-station"
+      },
+      "wallbox_stop_reason": {
+        "default": "mdi:ev-plug-type2"
+      },
+      "wallbox_limit": {
+        "default": "mdi:speedometer-medium"
+      },
+      "wallbox_error_code": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "wallbox_clock_offset": {
+        "default": "mdi:clock-alert-outline"
+      },
+      "wallbox_last_seen": {
+        "default": "mdi:clock-check-outline"
+      }
+    },
+    "switch": {
+      "wallbox_available": {
+        "default": "mdi:ev-station",
+        "state": {
+          "off": "mdi:lock"
+        }
       }
     }
   },

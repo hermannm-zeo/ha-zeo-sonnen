@@ -67,18 +67,23 @@
           "scan_interval": "Abfrageintervall",
           "model": "Modell",
           "protect": "Notstrom (sonnenProtect)",
-          "dashboard": "Dashboard"
+          "dashboard": "Dashboard",
+          "wallbox_id": "Wallbox Ladepunkt-ID",
+          "wallbox_max_current": "Wallbox Höchststrom"
         },
         "data_description": {
           "scan_interval": "Sekunden zwischen zwei Abfragen. Kürzer = genauere Energiezähler.",
           "model": "Bestimmt die Gehäusefarbe im Dashboard.",
           "protect": "Notstrom gibt es bei Performance mit Protect 8000, Performance+ (integriert) und sonnenBatterie 10 mit Protect 4000. Nur dann bietet das Dashboard den Notstrompuffer an.",
-          "dashboard": "Welche Ansicht in der Seitenleiste erscheint. Classic = Portal im Stil von my.sonnen, Modern = Hausansicht mit Energiefluss."
+          "dashboard": "Welche Ansicht in der Seitenleiste erscheint. Classic = Portal im Stil von my.sonnen, Modern = Hausansicht mit Energiefluss.",
+          "wallbox_id": "OCPP-ID des sonnenCharger 3, meist die Seriennummer (z. B. ACE0871215). Leer = keine Wallbox. Im Alfen ACE Service Installer die CSMS-URL auf ws://<IP von Home Assistant>:8123/api/zeo_sonnen/ocpp/ stellen und die Wallbox neu starten.",
+          "wallbox_max_current": "Höchster Strom je Phase, den die Zuleitung erlaubt (z. B. 16 A bei B16)."
         }
       }
     },
     "error": {
-      "protect_mismatch": "Dieses Protect passt nicht zum Modell. Protect 8000 gehört zur Performance, Protect 4000 zur sonnenBatterie 10. Die Performance+ hat Notstrom integriert, die hybrid hat keinen."
+      "protect_mismatch": "Dieses Protect passt nicht zum Modell. Protect 8000 gehört zur Performance, Protect 4000 zur sonnenBatterie 10. Die Performance+ hat Notstrom integriert, die hybrid hat keinen.",
+      "invalid_wallbox_id": "Nur Buchstaben, Ziffern und . _ : - erlaubt (höchstens 48 Zeichen)."
     }
   },
   "entity": {
@@ -97,6 +102,9 @@
       },
       "discharge_not_allowed": {
         "name": "Entladung gesperrt"
+      },
+      "wallbox_connected": {
+        "name": "Verbunden"
       }
     },
     "number": {
@@ -224,6 +232,50 @@
       },
       "installed_capacity": {
         "name": "Installierte Kapazität"
+      },
+      "wallbox_status": {
+        "name": "Status"
+      },
+      "wallbox_power": {
+        "name": "Leistung"
+      },
+      "wallbox_current": {
+        "name": "Strom"
+      },
+      "wallbox_current_offered": {
+        "name": "Angebotener Strom"
+      },
+      "wallbox_voltage": {
+        "name": "Spannung"
+      },
+      "wallbox_energy_total": {
+        "name": "Zählerstand"
+      },
+      "wallbox_session_energy": {
+        "name": "Energie Ladevorgang"
+      },
+      "wallbox_session_duration": {
+        "name": "Dauer Ladevorgang"
+      },
+      "wallbox_stop_reason": {
+        "name": "Letzter Stoppgrund"
+      },
+      "wallbox_limit": {
+        "name": "Begrenzung"
+      },
+      "wallbox_error_code": {
+        "name": "Fehlercode"
+      },
+      "wallbox_clock_offset": {
+        "name": "Uhrzeitabweichung"
+      },
+      "wallbox_last_seen": {
+        "name": "Letzte Meldung"
+      }
+    },
+    "switch": {
+      "wallbox_available": {
+        "name": "Freigegeben"
       }
     }
   },

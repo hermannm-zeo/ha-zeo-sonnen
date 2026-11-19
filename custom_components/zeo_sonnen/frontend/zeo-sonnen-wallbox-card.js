@@ -1,21 +1,23 @@
 /* zeo-sonnen-wallbox-card – Wallbox-Ansicht (sonnenCharger 3 / Alfen über OCPP) im Stil der Hauskarte
  * ZEO Solar – Teil der Integration zeo_sonnen
  *
- * Daten aus der OCPP-Integration (Entitäten <prefix>_*), Statistiken aus dem Recorder.
+ * Daten aus dem OCPP-Server von zeo_sonnen (Websocket zeo_sonnen/info → Entitäten), Statistiken aus dem Recorder.
+ * Befehle über die Aktionen zeo_sonnen.wallbox_set_limit / zeo_sonnen.wallbox_clear_limit.
  * Konfiguration:
- *   prefix:     Entitäts-Präfix der Ladestation (Standard: sonnencharger)
+ *   entry:      entry_id der Integration (Standard: erste geladene)
  *   title:      Überschrift (Standard: Meine Wallbox)
- *   name:       Gerätename unter der Überschrift (Standard: sonnenCharger 3)
+ *   name:       Gerätename unter der Überschrift (Standard: Modell aus der Box bzw. sonnenCharger 3)
  *   max_power:  Höchstleistung in kW für die Anzeige (Standard: 11)
  *   rfid:       true = Hinweis „Laden mit Karte starten“ (Standard: true)
- *   max_current: höchster einstellbarer Ladestrom in A (Standard: 16)
+ *   max_current: höchster einstellbarer Ladestrom in A (Standard: aus der Integration, sonst 16)
  *   mode:       optional input_select/select für den Lademodus (Aus, Eco, Eco+, Power, Manuell)
  *   manager:    Status-Sensor des Lademanagers (Standard: sensor.wallbox_lademanager)
  *   dry_run:    input_boolean Trockenlauf (Standard: input_boolean.wallbox_trockenlauf)
  *   theme:      auto | light | dark
+ *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev1";
+const ZW_VERSION = "0.7.0-dev2";
 
 const ZK = {
   ev: "#9BD62A", ev2: "#6FAE12", petrol: "#0E3A43",
@@ -55,30 +57,66 @@ const ZW_EV = "M19.77,7.23L19.78,7.22L16.06,3.5L15,4.56L17.11,6.67C16.17,7.03 15
 
 class ZeoSonnenWallboxCard extends HTMLElement {
   setConfig(config) {
-    this._cfg = { prefix: "sonnencharger", title: "Meine Wallbox", name: "sonnenCharger 3", max_power: 11, max_current: 16, rfid: true, theme: "auto", ...config };
-    const p = this._cfg.prefix;
-    this._e = {
-      status: `sensor.${p}_status_connector`, station: `sensor.${p}_status`,
-      power: `sensor.${p}_power_active_import`, current: `sensor.${p}_current_import`, offered: `sensor.${p}_current_offered`,
-      voltage: `sensor.${p}_voltage`, session: `sensor.${p}_energy_session`, time: `sensor.${p}_time_session`,
-      total: `sensor.${p}_energy_active_import_register`, error: `sensor.${p}_error_code_connector`, stop: `sensor.${p}_stop_reason`,
-      fw: `sensor.${p}_version_firmware`, model: `sensor.${p}_model`, vendor: `sensor.${p}_vendor`, serial: `sensor.${p}_serial`,
-      latency: `sensor.${p}_latency_pong`, avail: `switch.${p}_availability`,
-      manager: this._cfg.manager || "sensor.wallbox_lademanager", dry: this._cfg.dry_run || "input_boolean.wallbox_trockenlauf",
-      ...(this._cfg.entities || {}),
-    };
+    this._cfg = { title: "Meine Wallbox", max_power: 11, rfid: true, theme: "auto", ...config };
+    this._e = this._entityMap();
     this._range = this._range || "today";
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this._built = false;
+  }
+  _entityMap() {
+    const w = (this._info && this._info.wallbox) || {};
+    return {
+      ...(w.entities || {}),
+      manager: this._cfg.manager || "sensor.wallbox_lademanager", dry: this._cfg.dry_run || "input_boolean.wallbox_trockenlauf",
+      ...(this._cfg.entities || {}),
+    };
+  }
+  _wb() { return (this._info && this._info.wallbox) || null; }
+  async _loadInfo() {
+    if (this._infoBusy || !this._hass) return;
+    this._infoBusy = true;
+    this._infoAt = Date.now();
+    const keyOf = () => JSON.stringify(this._wb() ? this._wb().entities || {} : null);
+    const before = this._info ? keyOf() : undefined;
+    try {
+      const msg = { type: "zeo_sonnen/info" };
+      if (this._cfg.entry) msg.entry_id = this._cfg.entry;
+      this._info = await this._hass.callWS(msg);
+      this._infoErr = false;
+    } catch (e) {
+      this._infoErr = true;
+    } finally {
+      this._infoBusy = false;
+    }
+    this._e = this._entityMap();
+    if (before !== keyOf()) this._built = false;  // neu aufbauen nur, wenn sich Entitäten geändert haben
+    if (this._hass) this.hass = this._hass;
   }
   getCardSize() { return 12; }
 
   set hass(hass) {
     this._hass = hass;
+    const age = this._infoAt ? Date.now() - this._infoAt : Infinity;
+    // Info alle 5 min auffrischen (Gerätedaten kommen erst nach der Anmeldung der Box), bei Fehler alle 30 s
+    if (age > (!this._info || this._infoErr ? 30000 : 5 * 60000)) this._loadInfo();
+    if (!this._info || this._infoErr) {
+      if (!this._info) { this._empty(this._infoErr ? "Die Wallbox-Daten konnten nicht geladen werden. Neuer Versuch in 30 Sekunden." : "Lade Wallbox …"); return; }
+    }
+    if (!this._wb()) {
+      this._empty("Keine Wallbox eingerichtet. Ladepunkt-ID unter Einstellungen → Geräte & Dienste → ZEO sonnenBatterie → Konfigurieren eintragen.");
+      return;
+    }
     if (!this._built) this._build();
     this._theme();
     this._update();
     if (!this._statsAt || Date.now() - this._statsAt > 5 * 60000) this._loadStats();
+  }
+  _empty(text) {
+    if (this._emptyText === text && !this._built) return;
+    this._built = false;
+    this._emptyText = text;
+    this.shadowRoot.innerHTML = `<style>${this._css()}</style><div class="z3"><section class="hero"><div class="brand"><i>${this._svg(ZW_EV, 30)}</i><div><h1>${zesc(this._cfg.title)}</h1></div></div></section><section class="grid"><article class="card full"><div class="msg">${zesc(text)}</div></article></section></div>`;
+    this._theme();
   }
   connectedCallback() { if (!this._timer) this._timer = setInterval(() => this._loadStats(), 5 * 60000); }
   disconnectedCallback() { clearInterval(this._timer); this._timer = null; }
@@ -110,11 +148,14 @@ class ZeoSonnenWallboxCard extends HTMLElement {
   /* ---------- Gerüst ---------- */
   _build() {
     this._built = true;
+    this._emptyText = null;
     const c = this._cfg;
+    const dev = (this._wb() && this._wb().device) || {};
+    const devName = c.name || (dev.model === "AHP02-60327" ? "sonnenCharger 3" : dev.model) || "sonnenCharger 3";
     this.shadowRoot.innerHTML = `<style>${this._css()}</style>
     <div class="z3">
       <section class="hero">
-        <div class="brand"><i>${this._svg(ZW_EV, 30)}</i><div><h1>${zesc(c.title)}</h1><div class="subt" id="subt">${zesc(c.name)}</div></div></div>
+        <div class="brand"><i>${this._svg(ZW_EV, 30)}</i><div><h1>${zesc(c.title)}</h1><div class="subt" id="subt">${zesc(devName)}</div></div></div>
         <div class="hstat"><span class="chip" id="chip"><i></i><span></span></span></div>
       </section>
       <div id="banner"></div>
@@ -213,7 +254,8 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     if (!this._hass || !this._built) return;
     const r = this.shadowRoot, c = this._cfg;
     const st = this._st("status");
-    const offline = !st || st.state === "unavailable" || st.state === "unknown";
+    const con = this._st("connected");
+    const offline = !st || st.state === "unavailable" || st.state === "unknown" || (con ? con.state !== "on" : !this._wb().connected);
     const [label, col, hint] = offline ? ["Nicht erreichbar", ZK.err, "Keine Verbindung zur Wallbox."] : ZW_STATUS[st.state] || [st.state, ZK.grey, ""];
     const chip = r.getElementById("chip");
     chip.querySelector("i").style.background = col;
@@ -221,7 +263,8 @@ class ZeoSonnenWallboxCard extends HTMLElement {
 
     const charging = !offline && st.state === "Charging";
     const inTx = !offline && ["Charging", "SuspendedEV", "SuspendedEVSE"].includes(st.state);
-    const kw = charging ? this._num("power") : offline ? null : 0;
+    const pw = this._num("power");
+    const kw = charging ? (pw == null ? null : pw / 1000) : offline ? null : 0;
     const cur = ["L1", "L2", "L3"].map((l) => (inTx ? this._attrNum("current", l) : null));
     const nph = cur.filter((a) => a != null && a > 0.5).length;
     r.getElementById("phtag").textContent = !charging ? "–" : nph === 1 ? "1-phasig" : nph === 3 ? "3-phasig" : `${nph}-phasig`;
@@ -238,35 +281,37 @@ class ZeoSonnenWallboxCard extends HTMLElement {
         <b>${a == null ? "–" : `${zf(a, 1)} A`}</b><small>${w == null ? "" : `${zf(w / 1000, 2)} kW`}</small></div>`;
     }).join("");
 
-    const sk = this._num("session"), tm = this._num("time"), off = this._num("offered");
+    const sk = this._num("session_energy"), tm = this._num("session_duration"), off = this._num("current_offered");
     r.getElementById("s-kwh").textContent = sk == null ? "–" : `${zf(sk, 2)} kWh`;
     r.getElementById("s-time").textContent = zdur(tm);
     r.getElementById("s-off").textContent = off == null || !inTx ? "–" : `${zf(off, 0)} A`;
     r.getElementById("s-head").textContent = inTx ? "Ladevorgang" : "Letzter Ladevorgang";
-    const stop = this._st("stop");
+    const stop = this._st("stop_reason");
     r.getElementById("s-stop").textContent = stop && stop.state && stop.state !== "unknown" && stop.state !== "unavailable" ? ZW_STOP[stop.state] || stop.state : "–";
 
-    const tot = this._num("total");
+    const tot = this._num("energy_total");
     r.getElementById("e-total").textContent = tot == null ? "–" : `${zf(tot, 1)} kWh`;
 
     const v = this._st("voltage");
     const va = v && v.state !== "unavailable" ? v.attributes : {};
-    r.getElementById("volts").innerHTML = ["L1-N", "L2-N", "L3-N"].map((k) => {
+    r.getElementById("volts").innerHTML = ["L1", "L2", "L3"].map((k) => {
       const x = parseFloat(va[k]);
-      return `<div><span>Spannung ${k.replace("-N", "")}</span><b>${isNaN(x) ? "–" : `${zf(x, 0)} V`}</b></div>`;
+      return `<div><span>Spannung ${k}</span><b>${isNaN(x) ? "–" : `${zf(x, 0)} V`}</b></div>`;
     }).join("");
 
     const txt = (k) => { const s = this._st(k); return s && s.state !== "unavailable" && s.state !== "unknown" ? s.state : "–"; };
-    r.getElementById("g-model").textContent = txt("model") === "AHP02-60327" ? "Alfen Eve Single Plus" : txt("model");
-    r.getElementById("g-fw").textContent = txt("fw");
-    r.getElementById("g-serial").textContent = txt("serial");
-    const err = txt("error");
+    const dev = this._wb().device || {};
+    const dv = (v) => (v == null || v === "" ? "–" : String(v));
+    r.getElementById("g-model").textContent = dev.model === "AHP02-60327" ? "Alfen Eve Single Plus" : dv(dev.model);
+    r.getElementById("g-fw").textContent = dv(dev.firmware);
+    r.getElementById("g-serial").textContent = dv(dev.serial);
+    const err = txt("error_code");
     r.getElementById("g-err").textContent = err === "NoError" ? "kein Fehler" : err;
     const on = r.getElementById("online");
     on.textContent = offline ? "Offline" : "Online";
     on.style.color = offline ? ZK.err : ZK.ok;
 
-    const av = this._st("avail");
+    const av = this._st("available");
     const banner = r.getElementById("banner");
     banner.innerHTML = offline
       ? `<div class="banner">Die Wallbox ist gerade nicht erreichbar. Laden ist trotzdem möglich, die Anzeige fehlt nur.</div>`
@@ -277,27 +322,24 @@ class ZeoSonnenWallboxCard extends HTMLElement {
   }
 
   /* ---------- Einstellungen (OCPP-Ladeprofil auf Anschluss 1) ---------- */
-  _limKey() { return `zw_lim_${this._cfg.prefix}`; }
   _getLim() {
-    if (this._lim !== undefined) return this._lim;
-    try { this._lim = JSON.parse(localStorage.getItem(this._limKey()) || "null"); } catch (e) { this._lim = null; }
-    return this._lim;
+    // Begrenzung, wie die Box sie zuletzt angenommen hat (Entität limit). null = keine Begrenzung.
+    const s = this._st("limit");
+    if (!s || s.state === "unknown" || s.state === "unavailable" || s.state === "") return null;
+    const a = parseFloat(s.state);
+    if (isNaN(a)) return null;
+    const lim = { a: Math.round(a), p: Number(s.attributes.phases) === 1 ? 1 : 3 };
+    if (lim.a > 0) this._lastLim = lim;
+    return lim;
   }
-  _setLim(v) {
-    this._lim = v;
-    try { v ? localStorage.setItem(this._limKey(), JSON.stringify(v)) : localStorage.removeItem(this._limKey()); } catch (e) { /* kein Speicher */ }
-  }
-  _maxA() { return Math.max(6, Number(this._cfg.max_current) || 16); }
-  _profile(a, p) {
-    return { chargingProfileId: 101, stackLevel: 1, chargingProfilePurpose: "TxDefaultProfile", chargingProfileKind: "Relative",
-      chargingSchedule: { chargingRateUnit: "A", chargingSchedulePeriod: [{ startPeriod: 0, limit: a, numberPhases: p }] } };
-  }
+  _cpId() { return this._wb().charge_point_id; }
+  _maxA() { return Math.max(6, Number(this._cfg.max_current) || Number(this._wb() && this._wb().max_current) || 16); }
   _send(a, p) {
-    // einphasig nie über 16 A (VDE-AR-N 4100, Schieflast ≤ 4,6 kVA)
+    // einphasig nie über 16 A (VDE-AR-N 4100, Schieflast ≤ 4,6 kVA); der Server kappt zusätzlich
     const amp = p === 1 ? Math.min(a, 16) : a;
-    return this._hass.callService("ocpp", "set_charge_rate", { devid: this._cfg.prefix, conn_id: 1, custom_profile: this._profile(amp, p) });
+    return this._hass.callService("zeo_sonnen", "wallbox_set_limit", { charge_point_id: this._cpId(), current: amp, phases: p });
   }
-  _clear() { return this._hass.callService("ocpp", "clear_profile", { devid: this._cfg.prefix }); }
+  _clear() { return this._hass.callService("zeo_sonnen", "wallbox_clear_limit", { charge_point_id: this._cpId() }); }
   _ask(text, fn) {
     const r = this.shadowRoot;
     if (!this._isManual()) text += " Der Lademodus wechselt dabei auf Manuell.";
@@ -332,7 +374,6 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       const amp = p === 1 ? Math.min(a, 16) : a;
       this._ask(`Ladestrom ${amp} A, ${p}-phasig (${zf((amp * 230 * p) / 1000, 1)} kW) übernehmen?`, async () => {
         await this._send(amp, p);
-        this._setLim({ a: amp, p });
       });
     };
     slider.addEventListener("input", () => { r.getElementById("set-cur-v").textContent = `${slider.value} A`; });
@@ -347,7 +388,6 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       this._paintPh(p);
       this._ask(`${p}-phasig mit ${amp} A (${zf((amp * 230 * p) / 1000, 1)} kW) übernehmen?`, async () => {
         await this._send(amp, p);
-        this._setLim({ a: amp, p });
       });
     }));
     r.getElementById("set-no").addEventListener("click", () => this._done());
@@ -362,19 +402,20 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     r.getElementById("set-pause").addEventListener("click", () => {
       const st = this._st("status");
       if (st && st.state === "SuspendedEVSE") {
-        const lim = this._getLim();
+        this._getLim();
+        const lim = this._lastLim;
         this._ask("Ladung fortsetzen?", async () => { if (lim) await this._send(lim.a, lim.p); else await this._clear(); });
       } else {
         this._ask("Ladung pausieren? Die Wallbox gibt dann keinen Strom mehr frei, bis Sie fortsetzen.", async () => { await this._send(0, 3); });
       }
     });
     r.getElementById("set-reset").addEventListener("click", () => {
-      this._ask("Alle Begrenzungen aufheben? Die Wallbox lädt dann wieder mit voller Leistung.", async () => { await this._clear(); this._setLim(null); });
+      this._ask("Alle Begrenzungen aufheben? Die Wallbox lädt dann wieder mit voller Leistung.", async () => { await this._clear(); this._lastLim = null; });
     });
     r.getElementById("set-avail").addEventListener("click", () => {
-      const av = this._st("avail"), on = av && av.state === "on";
+      const av = this._st("available"), on = av && av.state === "on";
       this._ask(on ? "Wallbox sperren? Sie lädt dann nicht mehr, auch nicht mit Karte." : "Wallbox wieder freigeben?", async () => {
-        await this._hass.callService("switch", on ? "turn_off" : "turn_on", { entity_id: this._e.avail });
+        await this._hass.callService("switch", on ? "turn_off" : "turn_on", { entity_id: this._e.available });
       });
     });
   }
@@ -385,7 +426,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     const lim = this._getLim();
     const slider = r.getElementById("set-cur");
     if (!this._pend && !this._pendingFn) {
-      slider.value = String(lim ? lim.a : this._maxA());
+      slider.value = String(lim && lim.a > 0 ? lim.a : this._maxA());
       r.getElementById("set-cur-v").textContent = `${slider.value} A`;
       this._paintPh(lim ? lim.p : 3);
     }
@@ -394,16 +435,16 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     pb.textContent = paused ? "Fortsetzen" : "Pausieren";
     pb.disabled = !inTx;
     r.getElementById("set-run-h").textContent = !inTx ? "Kein Ladevorgang aktiv" : paused ? "Pausiert" : "Läuft";
-    const av = this._st("avail"), on = av && av.state === "on";
+    const av = this._st("available"), on = av && av.state === "on";
     const ab = r.getElementById("set-avail");
     ab.textContent = on ? "Sperren" : "Freigeben";
     ab.disabled = offline || !av;
     r.getElementById("set-av-h").textContent = on ? "Freigegeben" : "Gesperrt";
     const info = r.getElementById("set-info");
-    info.textContent = this._flash || (!this._isManual() ? "Der Lademodus regelt die Wallbox" : lim ? `Begrenzt auf ${lim.a} A, ${lim.p}-phasig` : "Keine Begrenzung aktiv");
+    info.textContent = this._flash || (!this._isManual() ? "Der Lademodus regelt die Wallbox" : lim ? (lim.a === 0 ? "Pausiert (0 A)" : `Begrenzt auf ${lim.a} A, ${lim.p}-phasig`) : "Keine Begrenzung aktiv");
     if (this._flash) { clearTimeout(this._flashT); this._flashT = setTimeout(() => { this._flash = null; this._updateSettings(this._st("status"), false, true); }, 4000); }
     r.getElementById("set-reset").hidden = !lim;
-    r.getElementById("set-sum").textContent = lim && this._isManual() ? `${lim.a} A, ${lim.p}-phasig` : "";
+    r.getElementById("set-sum").textContent = lim && this._isManual() ? (lim.a === 0 ? "Pausiert" : `${lim.a} A, ${lim.p}-phasig`) : "";
   }
 
   _modeState() { const e = this._cfg.mode; return e && this._hass.states[e]; }
@@ -454,8 +495,10 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     this._statsBusy = true;
     this._statsAt = Date.now();
     const ws = this._hass.connection;
-    const tot = this._e.total, pow = this._e.power;
+    const tot = this._e.energy_total, pow = this._e.power;
+    if (!tot && !pow) { this._statsBusy = false; return; }
     const per = async (period) => {
+      if (!tot) return null;
       try {
         const res = await ws.sendMessagePromise({ type: "recorder/statistic_during_period", statistic_id: tot, calendar: { period }, types: ["change"] });
         return res && res.change != null ? res.change : null;
@@ -471,7 +514,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
         ws.sendMessagePromise({ type: "recorder/statistics_during_period", start_time: start.toISOString(), period: "5minute", statistic_ids: [pow], types: ["mean"] }).catch(() => ({})),
       ]);
       this._days = (days && days[tot]) || [];
-      this._five = (five && five[pow]) || [];
+      this._five = ((five && five[pow]) || []).map((p) => ({ ...p, mean: p.mean == null ? null : p.mean / 1000 }));  // W -> kW
     } finally {
       this._statsBusy = false;
     }

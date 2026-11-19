@@ -190,8 +190,27 @@ async def test_options_flow(hass: HomeAssistant, init_integration: MockConfigEnt
         CONF_PROTECT: "none",
         # entries from before the dashboard choice keep the classic portal
         CONF_DASHBOARD: "classic",
+        "wallbox_id": "",
+        "wallbox_max_current": 16,
     }
     assert init_integration.runtime_data.update_interval.total_seconds() == 30
+
+
+async def test_options_flow_wallbox(hass: HomeAssistant, init_integration: MockConfigEntry) -> None:
+    result = await hass.config_entries.options.async_init(init_integration.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_SCAN_INTERVAL: 10, "wallbox_id": "ACE 0871215"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"wallbox_id": "invalid_wallbox_id"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SCAN_INTERVAL: 10, "wallbox_id": "  ACE0871215 ", "wallbox_max_current": 20},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert init_integration.options["wallbox_id"] == "ACE0871215"
+    assert init_integration.options["wallbox_max_current"] == 20
 
 
 async def test_options_flow_model(hass: HomeAssistant, init_integration: MockConfigEntry) -> None:

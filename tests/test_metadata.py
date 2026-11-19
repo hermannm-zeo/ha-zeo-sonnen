@@ -29,7 +29,7 @@ def test_icons_refer_to_real_entities_and_states() -> None:
             assert key in strings[platform], f"icons.json: unknown {platform} '{key}'"
             states = strings[platform][key].get("state")
             for state in icon.get("state", {}):
-                if platform != "binary_sensor":  # on/off come from Home Assistant
+                if platform not in ("binary_sensor", "switch"):  # on/off come from Home Assistant
                     assert state in states, f"icons.json: unknown state '{state}' for {key}"
 
 

@@ -114,7 +114,9 @@ class Box:
 async def server(hass: HomeAssistant) -> OcppServer:
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
-    return hass.data[DATA_OCPP]
+    srv: OcppServer = hass.data[DATA_OCPP]
+    srv.async_allow(CP)  # normally done by an entry with a wallbox id
+    return srv
 
 
 @pytest.fixture
