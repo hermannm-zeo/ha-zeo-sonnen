@@ -7,6 +7,7 @@
 - Verarbeitet Boot, Heartbeat, Status, Messwerte (Energie, Leistung und Strom je Phase, angebotener Strom, Spannung), Autorisierung und Ladevorgänge; setzt die Uhr der Box und merkt sich die Zeitabweichung
 - Fragt nach dem Verbinden den Status der Box ab
 - Noch ohne Entitäten und ohne Steuerung (folgt)
+- Wallbox-Karte `custom:zeo-sonnen-wallbox-card` (Vorschau, 0.7.0-dev1): Status, Leistung je Phase, Ladevorgang, geladene Energie, Gerät, Ladeleistung, Lademodus und Einstellungen. Liest noch die Entitäten der OCPP-Integration aus dem Marketplace und wird noch nicht automatisch geladen
 - Regelkern `charge_logic.py` für die Lademodi Aus/Eco/Eco+/Power/Manuell mit Tests; Testaufbau als pyscript unter `tools/pyscript/`
 
 ### Geändert
