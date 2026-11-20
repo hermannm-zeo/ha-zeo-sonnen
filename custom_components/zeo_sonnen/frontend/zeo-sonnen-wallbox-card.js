@@ -205,7 +205,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
             </div>
           </div>
         </article>
-        <article class="card">
+        <article class="card sess">
           <header><h2 id="s-head">Ladevorgang</h2></header>
           <div class="facts f2">
             <div><span>Geladen</span><b id="s-kwh">–</b></div>
@@ -636,7 +636,9 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:20px}
     .card{background:var(--zc);border-radius:16px;box-shadow:var(--zsh);padding:18px 20px;min-width:0}
     .card[hidden]{display:none}
-    .card.wide2,.card.know3{grid-column:span 2}.card.full{grid-column:1 / -1}
+    .card.wide2,.card.sess{grid-column:span 2}.card.full{grid-column:1 / -1}
+    .card.know3{grid-column:3;grid-row:1}
+    .sess .facts.f2{grid-template-columns:repeat(4,minmax(0,1fr))}
     .grid{grid-auto-flow:row dense}
     .card header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
     h2{font-size:16px;font-weight:600;margin:0;color:var(--zh)}
@@ -699,7 +701,11 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .facts.f4{grid-template-columns:repeat(4,minmax(0,1fr))}
     .dsec .facts b{font-size:15px}
     .volts{margin-top:14px;padding-top:12px;border-top:1px solid var(--zl)}
-    @container (max-width:1100px){.grid{grid-template-columns:1fr 1fr}.card.wide2,.card.know3{grid-column:1 / -1}}
+    @container (max-width:1100px){
+      .grid{grid-template-columns:1fr 1fr}
+      .card.wide2,.card.know3{grid-column:1 / -1;grid-row:auto}
+      .card.sess{grid-column:auto}.sess .facts.f2{grid-template-columns:1fr 1fr}
+    }
     @container (max-width:720px){
       .z3{border-radius:0}
       .hero{padding:16px}
