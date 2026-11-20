@@ -25,6 +25,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
@@ -34,6 +35,8 @@ from .coordinator import SonnenConfigEntry, SonnenCoordinator, SonnenData
 from .energy import FLOWS, EnergyIntegrator, split_flows, to_float
 from .entity import SonnenEntity
 from .status_flags import LED_OPTIONS, shutdown_reason, status_led
+from .target_soc import SIGNAL_TARGET_SOC
+from .target_soc import STATES as TARGET_STATES
 from .wallbox import (
     WallboxDescription,
     WallboxEntity,
@@ -268,6 +271,7 @@ async def async_setup_entry(
         SonnenSensor(coordinator, desc) for desc in SENSORS if desc.exists_fn(data)
     ]
     entities += [SonnenEnergySensor(coordinator, flow) for flow in FLOWS]
+    entities.append(SonnenTargetSocSensor(coordinator))
     for meter in data.powermeter or []:
         direction = str(meter.get("direction", "")).lower()
         if direction not in ("production", "consumption"):
@@ -517,3 +521,47 @@ class WallboxMeterSensor(WallboxSensor, RestoreSensor):
             state.energy_wh = float(last.native_value) * 1000
         except (TypeError, ValueError):
             return
+
+
+class SonnenTargetSocSensor(SonnenEntity, SensorEntity):
+    """State of a run to a target state of charge (manual mode, full power)."""
+
+    _attr_translation_key = "target_soc"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(TARGET_STATES)
+
+    def __init__(self, coordinator: SonnenCoordinator) -> None:
+        super().__init__(coordinator, "target_soc")
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.target_soc is not None
+
+    @property
+    def native_value(self) -> str:
+        ctl = self.coordinator.target_soc
+        return ctl.run.state if ctl else "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        ctl = self.coordinator.target_soc
+        if ctl is None:
+            return {}
+        run = ctl.run
+        return {
+            "target": run.target,
+            "start_soc": run.start_soc,
+            "power": run.power,
+            "started": run.started,
+            "ended": run.ended,
+            "reason": run.reason,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_TARGET_SOC, self._on_target))
+
+    @callback
+    def _on_target(self, entry_id: str) -> None:
+        if entry_id == self.coordinator.config_entry.entry_id:
+            self.async_write_ha_state()

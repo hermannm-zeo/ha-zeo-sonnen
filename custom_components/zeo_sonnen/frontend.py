@@ -67,6 +67,7 @@ CARD_KEYS: dict[str, str] = {
     "grid_export_energy": "grid_export_energy",
     "battery_charge_energy": "charge_energy",
     "battery_discharge_energy": "discharge_energy",
+    "target_soc": "target_soc",
 }
 
 

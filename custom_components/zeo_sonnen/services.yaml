@@ -76,3 +76,20 @@ wallbox_get_configuration:
       selector:
         text:
           multiple: true
+set_target_soc:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: zeo_sonnen
+    soc:
+      required: true
+      example: 28
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: box

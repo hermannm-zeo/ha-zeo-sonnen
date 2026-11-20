@@ -14,6 +14,7 @@ from .coordinator import SonnenConfigEntry, SonnenCoordinator
 from .frontend import async_register_frontend, async_register_panel, async_remove_panel
 from .ocpp_server import async_setup_ocpp
 from .services import async_setup_services
+from .target_soc import TargetSocController
 from .wallbox import async_setup_wallbox
 
 PLATFORMS: list[Platform] = [
@@ -43,6 +44,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SonnenConfigEntry) -> bo
     )
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    coordinator.target_soc = TargetSocController(hass, entry)
+    await coordinator.target_soc.async_setup()
     async_setup_wallbox(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -55,6 +58,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SonnenConfigEntry) -> bo
 
 async def async_unload_entry(hass: HomeAssistant, entry: SonnenConfigEntry) -> bool:
     async_remove_panel(hass, entry)
+    if entry.runtime_data.target_soc is not None:
+        await entry.runtime_data.target_soc.async_unload()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

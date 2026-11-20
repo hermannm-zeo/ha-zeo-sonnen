@@ -7,7 +7,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -26,6 +26,9 @@ from .const import (
     MODELS,
     has_backup,
 )
+
+if TYPE_CHECKING:
+    from .target_soc import TargetSocController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +74,7 @@ class SonnenCoordinator(DataUpdateCoordinator[SonnenData]):
         )
         self.api = api
         self.serial = entry.unique_id or entry.entry_id
+        self.target_soc: TargetSocController | None = None  # set up in async_setup_entry
 
     @property
     def device_info(self) -> DeviceInfo:

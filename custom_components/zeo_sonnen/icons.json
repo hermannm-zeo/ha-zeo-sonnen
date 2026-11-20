@@ -134,6 +134,9 @@
       },
       "wallbox_last_seen": {
         "default": "mdi:clock-check-outline"
+      },
+      "target_soc": {
+        "default": "mdi:battery-sync-outline"
       }
     },
     "switch": {
@@ -146,6 +149,9 @@
     }
   },
   "services": {
+    "set_target_soc": {
+      "service": "mdi:battery-arrow-up-outline"
+    },
     "wallbox_set_limit": {
       "service": "mdi:ev-station"
     },

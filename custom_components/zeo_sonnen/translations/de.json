@@ -271,6 +271,17 @@
       },
       "wallbox_last_seen": {
         "name": "Letzte Meldung"
+      },
+      "target_soc": {
+        "name": "Zielladung",
+        "state": {
+          "idle": "Inaktiv",
+          "charging": "Lädt auf Ziel",
+          "discharging": "Entlädt auf Ziel",
+          "reached": "Ziel erreicht",
+          "stopped": "Gestoppt",
+          "aborted": "Abgebrochen"
+        }
       }
     },
     "switch": {
@@ -280,6 +291,15 @@
     }
   },
   "exceptions": {
+    "target_soc_manual_required": {
+      "message": "Die Batterie muss in der Betriebsart Manuell sein, um sie auf einen Ladestand zu fahren."
+    },
+    "target_soc_no_soc": {
+      "message": "Der aktuelle Ladestand der Batterie ist nicht bekannt."
+    },
+    "target_soc_already": {
+      "message": "Die Batterie steht bereits bei {soc} %."
+    },
     "wallbox_not_connected": {
       "message": "Die Wallbox {charge_point} ist nicht verbunden."
     },
@@ -342,6 +362,20 @@
     }
   },
   "services": {
+    "set_target_soc": {
+      "name": "Batterie auf Ladestand fahren",
+      "description": "Lädt oder entlädt die Batterie mit voller Leistung (9.900 W), bis der angegebene Ladestand erreicht ist, und hält sie danach in der Betriebsart Manuell bei 0 W. Nur in der Betriebsart Manuell. Ein Leistungssollwert oder ein Wechsel der Betriebsart beendet die Fahrt.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Batterie",
+          "description": "Die zu steuernde sonnenBatterie."
+        },
+        "soc": {
+          "name": "Ziel-Ladestand",
+          "description": "Ladestand in Prozent, den die Batterie erreichen soll."
+        }
+      }
+    },
     "wallbox_set_limit": {
       "name": "Wallbox-Ladestrom begrenzen",
       "description": "Setzt Ladestrom und Phasenzahl der Wallbox. 0 A pausiert die Ladung, ohne den Ladevorgang zu beenden. Einphasig höchstens 16 A.",

@@ -16,8 +16,11 @@ from .const import DOMAIN
 from .coordinator import SonnenConfigEntry
 from .ocpp_server import DATA_OCPP, NotConnectedError, OcppServer
 from .schema import vol
+from .target_soc import TargetSocError
 
 SERVICE_SET_POWER = "set_power"
+SERVICE_SET_TARGET_SOC = "set_target_soc"
+ATTR_SOC = "soc"
 ATTR_DIRECTION = "direction"
 ATTR_POWER = "power"
 MAX_SETPOINT_W = 20_000  # above any sonnen inverter; the battery clamps to its own limit
@@ -52,6 +55,14 @@ SET_POWER_SCHEMA = vol.Schema(
 )
 
 
+SET_TARGET_SOC_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): cv.string,
+        vol.Required(ATTR_SOC): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+    }
+)
+
+
 def _get_entry(hass: HomeAssistant, entry_id: str) -> SonnenConfigEntry:
     entry = hass.config_entries.async_get_entry(entry_id)
     if entry is None or entry.domain != DOMAIN:
@@ -64,11 +75,27 @@ def _get_entry(hass: HomeAssistant, entry_id: str) -> SonnenConfigEntry:
 async def _async_set_power(call: ServiceCall) -> None:
     entry = _get_entry(call.hass, call.data[ATTR_CONFIG_ENTRY_ID])
     coordinator = entry.runtime_data
+    if coordinator.target_soc is not None:
+        await coordinator.target_soc.async_cancel("setpoint")  # a manual setpoint ends a target run
     try:
         await coordinator.api.async_set_power_setpoint(call.data[ATTR_DIRECTION], call.data[ATTR_POWER])
     except SonnenError as err:
         raise HomeAssistantError(translation_domain=DOMAIN, translation_key="setpoint_failed") from err
     await coordinator.async_request_refresh()
+
+
+async def _async_set_target_soc(call: ServiceCall) -> None:
+    entry = _get_entry(call.hass, call.data[ATTR_CONFIG_ENTRY_ID])
+    controller = entry.runtime_data.target_soc
+    assert controller is not None
+    try:
+        await controller.async_start(call.data[ATTR_SOC])
+    except TargetSocError as err:
+        error = ServiceValidationError if err.reason != "setpoint_failed" else HomeAssistantError
+        raise error(
+            translation_domain=DOMAIN, translation_key=err.reason, translation_placeholders=err.placeholders
+        ) from err
+    await entry.runtime_data.async_request_refresh()
 
 
 def _server(hass: HomeAssistant) -> OcppServer:
@@ -123,6 +150,9 @@ async def _async_wallbox_get_configuration(call: ServiceCall) -> ServiceResponse
 
 def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_SET_POWER, _async_set_power, schema=SET_POWER_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_TARGET_SOC, _async_set_target_soc, schema=SET_TARGET_SOC_SCHEMA
+    )
     hass.services.async_register(
         DOMAIN, SERVICE_WALLBOX_SET_LIMIT, _async_wallbox_set_limit, schema=WALLBOX_SET_LIMIT_SCHEMA
     )

@@ -271,6 +271,17 @@
       },
       "wallbox_last_seen": {
         "name": "Last message"
+      },
+      "target_soc": {
+        "name": "Target charge",
+        "state": {
+          "idle": "Idle",
+          "charging": "Charging to target",
+          "discharging": "Discharging to target",
+          "reached": "Target reached",
+          "stopped": "Stopped",
+          "aborted": "Aborted"
+        }
       }
     },
     "switch": {
@@ -280,6 +291,15 @@
     }
   },
   "exceptions": {
+    "target_soc_manual_required": {
+      "message": "The battery must be in manual operating mode to drive it to a state of charge."
+    },
+    "target_soc_no_soc": {
+      "message": "The current state of charge of the battery is not known."
+    },
+    "target_soc_already": {
+      "message": "The battery is already at {soc} %."
+    },
     "wallbox_not_connected": {
       "message": "The wallbox {charge_point} is not connected."
     },
@@ -342,6 +362,20 @@
     }
   },
   "services": {
+    "set_target_soc": {
+      "name": "Drive battery to state of charge",
+      "description": "Charges or discharges the battery at full power (9,900 W) until it reaches the given state of charge, then holds it at 0 W in manual operating mode. Only works in manual operating mode. A power setpoint or a change of operating mode ends the run.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Battery",
+          "description": "The sonnenBatterie to control."
+        },
+        "soc": {
+          "name": "Target state of charge",
+          "description": "State of charge in percent the battery should reach."
+        }
+      }
+    },
     "wallbox_set_limit": {
       "name": "Limit wallbox current",
       "description": "Sets the charging current and number of phases of the wallbox. 0 A pauses charging without ending the session. Single phase is capped at 16 A.",

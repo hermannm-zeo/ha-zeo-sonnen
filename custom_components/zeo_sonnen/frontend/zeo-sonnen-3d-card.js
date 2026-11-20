@@ -37,6 +37,9 @@ const K = {
 };
 // Manuelle Steuerung: Grenzen der Eingabe in W (die Batterie begrenzt zusätzlich auf ihre Wechselrichterleistung)
 const Z3_MAN_MIN = 100, Z3_MAN_MAX = 20000;
+// Fahrt auf Ziel-Ladestand: immer volle Leistung (fest in der Integration, zeo_sonnen.set_target_soc)
+const Z3_TARGET_W = 9900;
+const Z3_TARGET_ST = { charging: "lädt", discharging: "entlädt" };
 const HOUSING = { black: "schwarz", white: "weiß", grey: "grau" };
 
 const Z3_DEFAULTS = (p) => ({
@@ -529,10 +532,15 @@ class ZeoSonnen3DCard extends HTMLElement {
               <div class="ctl"><span><b>Betriebsart</b><small>Lade- und Entladeverhalten</small></span><select id="c-mode"></select></div>
               <div class="confirm" id="c-mode-ok" hidden><span id="c-mode-q"></span><span class="cbtns"><button class="no" id="c-mode-no">Abbrechen</button><button class="yes" id="c-mode-yes">Übernehmen</button></span></div>
               <div class="man" id="c-man" hidden>
-                <div class="manh"><b>Manuelle Steuerung</b><small id="c-man-st">–</small></div>
-                <div class="manrow">
+                <div class="manh"><b>Manuelle Steuerung</b><span class="seg small" id="c-man-unit"><button data-u="w">Leistung</button><button data-u="pct">Ladestand</button></span></div>
+                <div class="manst" id="c-man-st">–</div>
+                <div class="manrow" id="c-man-wrow">
                   <span class="seg small" id="c-man-dir"><button data-d="charge">Laden</button><button data-d="discharge">Entladen</button></span>
                   <label class="pw"><input type="number" id="c-man-w" min="${Z3_MAN_MIN}" max="${Z3_MAN_MAX}" step="100" value="1000" inputmode="numeric" aria-label="Leistung in Watt"><em>W</em></label>
+                </div>
+                <div class="manrow" id="c-man-prow" hidden>
+                  <span class="manhint">Fährt mit voller Leistung (${fN(Z3_TARGET_W / 1000, 1)} kW) auf den Ziel-Ladestand und hält dort.</span>
+                  <label class="pw"><input type="number" id="c-man-p" min="0" max="100" step="1" value="28" inputmode="numeric" aria-label="Ziel-Ladestand in Prozent"><em>%</em></label>
                 </div>
                 <div class="mbtns"><button class="mbtn go" id="c-man-go">Starten</button><button class="mbtn stop" id="c-man-stop">Stopp</button></div>
                 <div class="confirm" id="c-man-ok" hidden><span id="c-man-q"></span><span class="cbtns"><button class="no" id="c-man-no">Abbrechen</button><button class="yes" id="c-man-yes">Ja, ausführen</button></span></div>
@@ -587,6 +595,15 @@ class ZeoSonnen3DCard extends HTMLElement {
     const paintDir = () => root.querySelectorAll("#c-man-dir button").forEach((b) => b.classList.toggle("act", b.dataset.d === this._manDir));
     paintDir();
     root.querySelectorAll("#c-man-dir button").forEach((b) => b.addEventListener("click", () => { this._manDir = b.dataset.d; paintDir(); }));
+    // Eingabe in W (feste Leistung) oder % (Fahrt auf Ziel-Ladestand)
+    this._manUnit = this._manUnit || "w";
+    const paintUnit = () => {
+      root.querySelectorAll("#c-man-unit button").forEach((b) => b.classList.toggle("act", b.dataset.u === this._manUnit));
+      $("c-man-wrow").hidden = this._manUnit !== "w";
+      $("c-man-prow").hidden = this._manUnit !== "pct";
+    };
+    paintUnit();
+    root.querySelectorAll("#c-man-unit button").forEach((b) => b.addEventListener("click", () => { this._manUnit = b.dataset.u; paintUnit(); }));
     const mbox = $("c-man-ok");
     const closeM = (msg) => {
       this._pendingMan = null;
@@ -596,6 +613,21 @@ class ZeoSonnen3DCard extends HTMLElement {
     };
     const askM = (q, run) => { this._pendingMan = run; $("c-man-q").textContent = q; mbox.hidden = false; };
     $("c-man-go").addEventListener("click", () => {
+      if (this._manUnit === "pct") {
+        const pct = Math.round(Number($("c-man-p").value));
+        const soc = this._num("soc");
+        if (!(pct >= 0 && pct <= 100)) { closeM("Bitte einen Ladestand zwischen 0 und 100 % eingeben."); return; }
+        if (soc == null) { closeM("Der Ladestand der Batterie ist gerade nicht bekannt."); return; }
+        if (pct === Math.round(soc)) { closeM(`Die Batterie steht bereits bei ${fN(pct, 0)} %.`); return; }
+        $("c-man-p").value = pct;
+        const down = pct < soc;
+        const rsv = this._num("backup_reserve");
+        const warn = down && rsv != null && pct < rsv
+          ? ` Achtung: Der Notstrompuffer steht auf ${fN(rsv, 0)} %, die Batterie hält vermutlich dort an. Puffer vorher absenken.` : "";
+        askM(`Speicher von ${fN(soc, 0)} % auf ${fN(pct, 0)} % ${down ? "entladen" : "laden"}, mit voller Leistung (${fN(Z3_TARGET_W, 0)} W)? Danach bleibt er bei 0 W in Manuell stehen.${down ? "" : " Fehlt Sonnenstrom, kommt der Strom aus dem Netz."}${warn}`,
+          { target: pct, done: `Fahrt auf ${fN(pct, 0)} % gestartet` });
+        return;
+      }
       const w = Math.round(Number($("c-man-w").value) / 100) * 100;
       if (!(w >= Z3_MAN_MIN && w <= Z3_MAN_MAX)) { closeM(`Bitte eine Leistung zwischen ${fN(Z3_MAN_MIN, 0)} und ${fN(Z3_MAN_MAX, 0)} W eingeben.`); return; }
       $("c-man-w").value = w;
@@ -612,7 +644,8 @@ class ZeoSonnen3DCard extends HTMLElement {
       if (!run) return;
       yes.disabled = true;
       try {
-        await this._hass.callService("zeo_sonnen", "set_power", { config_entry_id: this._entryId(), direction: run.direction, power: run.power });
+        if (run.target != null) await this._hass.callService("zeo_sonnen", "set_target_soc", { config_entry_id: this._entryId(), soc: run.target });
+        else await this._hass.callService("zeo_sonnen", "set_power", { config_entry_id: this._entryId(), direction: run.direction, power: run.power });
         closeM(run.done);
       } catch (e) {
         closeM(`Fehler: ${(e && e.message) || "Batterie hat nicht reagiert"}`);
@@ -932,7 +965,12 @@ class ZeoSonnen3DCard extends HTMLElement {
       man.hidden = !on;
       if (on) {
         const fm = this._flows();
-        set("c-man-st", this._manMsg || (fm.ch > 0 ? `Lädt mit ${kW(fm.ch)} kW` : fm.dis > 0 ? `Entlädt mit ${kW(fm.dis)} kW` : "Speicher steht"));
+        const ts = this._st("target_soc"), ta = (ts && ts.attributes) || {};
+        const now = fm.ch > 0 ? `lädt mit ${kW(fm.ch)} kW` : fm.dis > 0 ? `entlädt mit ${kW(fm.dis)} kW` : "steht";
+        const tgt = ts && Z3_TARGET_ST[ts.state] ? `Fahrt auf ${fN(ta.target, 0)} % läuft, Speicher ${now}`
+          : ts && ts.state === "reached" && fm.ch <= 0 && fm.dis <= 0 ? `Ziel ${fN(ta.target, 0)} % erreicht, hält bei 0 W` : null;
+        const soc = this._num("soc");
+        set("c-man-st", this._manMsg || tgt || `Speicher ${now}${soc == null ? "" : ` · ${fN(soc, 0)} %`}`);
       } else if (this._pendingMan) {
         this._pendingMan = null;
         $("c-man-ok").hidden = true;
@@ -1488,7 +1526,10 @@ class ZeoSonnen3DCard extends HTMLElement {
     .confirm button:disabled{opacity:.5;cursor:default}
     .ctl select{font:inherit;font-size:13px;color:var(--zi);background:var(--zc);border:1px solid var(--zbd);border-radius:9px;padding:7px 10px}
     .man{display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:var(--zf);border-radius:12px}.man[hidden]{display:none}
-    .manh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.manh b{font-weight:600}.manh small{font-size:12px;color:var(--zs);text-align:right}
+    .manh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.manh b{font-weight:600}
+    .manst{font-size:12.5px;color:var(--zs);margin-top:-4px}
+    .manhint{flex:1;min-width:180px;font-size:12px;color:var(--zs);line-height:1.35}
+    .manrow[hidden]{display:none}
     .manrow{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
     .pw{display:flex;align-items:center;gap:6px}.pw input{width:110px;font:inherit;font-size:15px;font-weight:600;text-align:right;padding:7px 10px;border:1px solid var(--zbd);border-radius:9px;background:var(--zc);color:var(--zi)}
     .pw em{font-style:normal;color:var(--zs)}
