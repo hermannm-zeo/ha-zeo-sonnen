@@ -102,10 +102,12 @@ const FLOWS = {
   // nowIf: Pille in „Jetzt“ nur, wenn dieser Fluss aktiv ist
   pvHome: { a: "pv", b: "home", c: [720, 330], col: K.pv, label: "PV ins Haus", line: "pvHouse", val: "pvHouse" },
   pvBat: { a: "pv", b: "bat", c: [1020, 140], col: K.pv, label: "Gespeichert", nowIf: "gridBat" },
-  // Netz immer über das Haus: Bezug Netz → Haus, Einspeisung auf demselben Weg rückwärts Haus → Netz
-  gridHome: { a: "grid", b: "home", c: [470, 600], col: "#EEF3F6", label: "Bezug", pill: false },
+  // Netz immer über das Haus: Bezug Netz → Haus (ganzer Bezug, auch fürs Speicherladen),
+  // Einspeisung auf demselben Weg rückwärts Haus → Netz. Netzladung läuft Haus → Speicher auf dem Weg
+  // der Speicherentladung; so kreuzt keine Linie eine andere.
+  gridHome: { a: "grid", b: "home", c: [470, 600], col: "#EEF3F6", label: "Bezug", pill: false, line: "gridIn" },
   homeGrid: { a: "home", b: "grid", c: [470, 600], col: K.exp, label: "Einspeisung", now: false },
-  gridBat: { a: "grid", b: "bat", c: [700, 760], col: "#EEF3F6", label: "Netz → Speicher" },
+  gridBat: { a: "home", b: "bat", c: [790, 350], col: "#EEF3F6", label: "Netz → Speicher" },
   batHome: { a: "bat", b: "home", c: [790, 350], col: K.bat, label: "Aus Speicher", now: false },
   // pill: false = nur Flusslinie, Wert steht im Kreis
   // inc: Gerät hängt hinter der sonnen-Messung (Teil des Verbrauchs); mit <gerät>_included: false keine Linie vom Verbrauch
@@ -194,7 +196,7 @@ function split(v) {
   const gridBat = Math.max(0, ch - pvBat);
   const gridHome = Math.max(0, imp - gridBat);
   // batHome = Fluss auf der Linie Speicher → Haus (enthält den Teil, der über das Haus eingespeist wird)
-  return { pvHome, pvBat, pvGrid, batGrid, batHome: dis, gridHome, gridBat };
+  return { pvHome, pvBat, pvGrid, batGrid, batHome: dis, gridHome, gridBat, gridIn: gridHome + gridBat };
 }
 
 /* Quadratische Bézierkurve */
