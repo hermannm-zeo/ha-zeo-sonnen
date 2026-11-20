@@ -35,6 +35,8 @@ const K = {
   warn: "#E9A23B",
   err: "#E2574C",
 };
+// Manuelle Steuerung: Grenzen der Eingabe in W (die Batterie begrenzt zusätzlich auf ihre Wechselrichterleistung)
+const Z3_MAN_MIN = 100, Z3_MAN_MAX = 20000;
 const HOUSING = { black: "schwarz", white: "weiß", grey: "grau" };
 
 const Z3_DEFAULTS = (p) => ({
@@ -421,6 +423,7 @@ class ZeoSonnen3DCard extends HTMLElement {
     ["pv", "cons", "ch", "dis", "imp", "exp", "ev", "hp"].forEach((k) => { if (v[k] != null && v[k] < t) v[k] = 0; });
     return v;
   }
+  _entryId() { return (this._info && this._info.entry_id) || this._cfg.entry_id || null; }
   // optionaler Kreis vorhanden (Entität angegeben und in HA bekannt)
   _has(k) {
     const sp = SPOTS[k];
@@ -525,6 +528,15 @@ class ZeoSonnen3DCard extends HTMLElement {
             <div class="ctrls">
               <div class="ctl"><span><b>Betriebsart</b><small>Lade- und Entladeverhalten</small></span><select id="c-mode"></select></div>
               <div class="confirm" id="c-mode-ok" hidden><span id="c-mode-q"></span><span class="cbtns"><button class="no" id="c-mode-no">Abbrechen</button><button class="yes" id="c-mode-yes">Übernehmen</button></span></div>
+              <div class="man" id="c-man" hidden>
+                <div class="manh"><b>Manuelle Steuerung</b><small id="c-man-st">–</small></div>
+                <div class="manrow">
+                  <span class="seg small" id="c-man-dir"><button data-d="charge">Laden</button><button data-d="discharge">Entladen</button></span>
+                  <label class="pw"><input type="number" id="c-man-w" min="${Z3_MAN_MIN}" max="${Z3_MAN_MAX}" step="100" value="1000" inputmode="numeric" aria-label="Leistung in Watt"><em>W</em></label>
+                </div>
+                <div class="mbtns"><button class="mbtn go" id="c-man-go">Starten</button><button class="mbtn stop" id="c-man-stop">Stopp</button></div>
+                <div class="confirm" id="c-man-ok" hidden><span id="c-man-q"></span><span class="cbtns"><button class="no" id="c-man-no">Abbrechen</button><button class="yes" id="c-man-yes">Ja, ausführen</button></span></div>
+              </div>
               ${this._cfg.backup ? `<div class="ctl"><span><b>Notstrompuffer</b><small>Reserve für Stromausfall</small></span>
                 <span class="rng"><input type="range" min="0" max="100" step="1" id="c-res"><em id="c-res-v"></em></span></div>
               <div class="confirm" id="c-res-ok" hidden><span id="c-res-q"></span><span class="cbtns"><button class="no" id="c-res-no">Abbrechen</button><button class="yes" id="c-res-yes">Übernehmen</button></span></div>` : ""}
@@ -568,6 +580,44 @@ class ZeoSonnen3DCard extends HTMLElement {
       } finally {
         yes.disabled = false;
         closeBox();
+      }
+    });
+    // Manuelle Steuerung (nur in Betriebsart „Manuell“): Laden/Entladen mit fester Leistung, Stopp = 0 W
+    this._manDir = this._manDir || "charge";
+    const paintDir = () => root.querySelectorAll("#c-man-dir button").forEach((b) => b.classList.toggle("act", b.dataset.d === this._manDir));
+    paintDir();
+    root.querySelectorAll("#c-man-dir button").forEach((b) => b.addEventListener("click", () => { this._manDir = b.dataset.d; paintDir(); }));
+    const mbox = $("c-man-ok");
+    const closeM = (msg) => {
+      this._pendingMan = null;
+      mbox.hidden = true;
+      if (msg) { this._manMsg = msg; clearTimeout(this._manT); this._manT = setTimeout(() => { this._manMsg = null; this._update(); }, 5000); }
+      this._update();
+    };
+    const askM = (q, run) => { this._pendingMan = run; $("c-man-q").textContent = q; mbox.hidden = false; };
+    $("c-man-go").addEventListener("click", () => {
+      const w = Math.round(Number($("c-man-w").value) / 100) * 100;
+      if (!(w >= Z3_MAN_MIN && w <= Z3_MAN_MAX)) { closeM(`Bitte eine Leistung zwischen ${fN(Z3_MAN_MIN, 0)} und ${fN(Z3_MAN_MAX, 0)} W eingeben.`); return; }
+      $("c-man-w").value = w;
+      const dir = this._manDir;
+      askM(dir === "charge"
+        ? `Speicher mit ${fN(w, 0)} W laden? Fehlt Sonnenstrom, kommt der Strom aus dem Netz.`
+        : `Speicher mit ${fN(w, 0)} W entladen? Was das Haus nicht braucht, kann ins Netz gehen.`,
+      { direction: dir, power: w, done: dir === "charge" ? "Laden gestartet" : "Entladen gestartet" });
+    });
+    $("c-man-stop").addEventListener("click", () => askM("Laden bzw. Entladen stoppen (0 W)?", { direction: "charge", power: 0, done: "Gestoppt" }));
+    $("c-man-no").addEventListener("click", () => closeM());
+    $("c-man-yes").addEventListener("click", async () => {
+      const run = this._pendingMan, yes = $("c-man-yes");
+      if (!run) return;
+      yes.disabled = true;
+      try {
+        await this._hass.callService("zeo_sonnen", "set_power", { config_entry_id: this._entryId(), direction: run.direction, power: run.power });
+        closeM(run.done);
+      } catch (e) {
+        closeM(`Fehler: ${(e && e.message) || "Batterie hat nicht reagiert"}`);
+      } finally {
+        yes.disabled = false;
       }
     });
     const res = $("c-res");
@@ -874,6 +924,19 @@ class ZeoSonnen3DCard extends HTMLElement {
       if (sel.dataset.k !== k) { sel.innerHTML = opts.map((o) => `<option value="${o}">${Z3_MODE[o] || o}</option>`).join(""); sel.dataset.k = k; }
       if (mode && opts.includes(mode)) sel.value = mode;
       sel.disabled = !avail || !opts.includes(mode);
+    }
+    // Manuelle Steuerung nur in Betriebsart „Manuell“ und wenn der Eintrag bekannt ist
+    const man = $("c-man");
+    if (man) {
+      const on = avail && mode === "manual" && !!this._entryId();
+      man.hidden = !on;
+      if (on) {
+        const fm = this._flows();
+        set("c-man-st", this._manMsg || (fm.ch > 0 ? `Lädt mit ${kW(fm.ch)} kW` : fm.dis > 0 ? `Entlädt mit ${kW(fm.dis)} kW` : "Speicher steht"));
+      } else if (this._pendingMan) {
+        this._pendingMan = null;
+        $("c-man-ok").hidden = true;
+      }
     }
     const res = $("c-res");
     const rv = this._num("backup_reserve");
@@ -1424,6 +1487,15 @@ class ZeoSonnen3DCard extends HTMLElement {
     .confirm button.yes{background:var(--zbtn);border-color:var(--zbtn);color:#fff;font-weight:600}
     .confirm button:disabled{opacity:.5;cursor:default}
     .ctl select{font:inherit;font-size:13px;color:var(--zi);background:var(--zc);border:1px solid var(--zbd);border-radius:9px;padding:7px 10px}
+    .man{display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:var(--zf);border-radius:12px}.man[hidden]{display:none}
+    .manh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.manh b{font-weight:600}.manh small{font-size:12px;color:var(--zs);text-align:right}
+    .manrow{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+    .pw{display:flex;align-items:center;gap:6px}.pw input{width:110px;font:inherit;font-size:15px;font-weight:600;text-align:right;padding:7px 10px;border:1px solid var(--zbd);border-radius:9px;background:var(--zc);color:var(--zi)}
+    .pw em{font-style:normal;color:var(--zs)}
+    .mbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .mbtn{font:inherit;font-size:13.5px;font-weight:600;border-radius:10px;padding:9px 14px;cursor:pointer;border:1px solid var(--zbd);background:var(--zc);color:var(--zi)}
+    .mbtn.go{background:var(--zbtn);border-color:var(--zbtn);color:#fff}
+    .mbtn.stop{color:${K.err};border-color:${K.err}}
     .rng{display:flex;align-items:center;gap:10px}.rng input{width:150px;accent-color:var(--zbtn)}.rng em{font-style:normal;min-width:42px;text-align:right}
     @container (max-width:1100px){.grid{grid-template-columns:1fr 1fr}.card.wide2{grid-column:1 / -1}}
     @container (max-width:720px){
