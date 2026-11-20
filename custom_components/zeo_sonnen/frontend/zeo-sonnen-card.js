@@ -940,6 +940,13 @@ class SonnenPortalCard extends HTMLElement {
 }
 
 /* Vollbild-Panel in der Seitenleiste (von der Integration registriert) */
+const ZP_TABS = [
+  { id: "flow", label: "Energiefluss", tag: "zeo-sonnen-3d-card" },
+  { id: "wallbox", label: "Wallbox", tag: "zeo-sonnen-wallbox-card" },
+];
+// Lademodus-Helfer der Firmen-Instanz, bis der Lademanager in der Integration steckt (Schritt 4)
+const ZP_MODE_HELPER = "input_select.wallbox_lademodus";
+
 class ZeoSonnenPanel extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
@@ -950,26 +957,38 @@ class ZeoSonnenPanel extends HTMLElement {
     this._render();
   }
   set narrow(narrow) {
-    this._narrow = narrow;
-    if (this._card && this._card._cfg && this._card._cfg.menu_button !== !!narrow) {
-      this._card.setConfig({ ...this._baseCfg, menu_button: !!narrow });
+    this._narrow = !!narrow;
+    if (this._tabs) {
+      this._paintBar();
+      return;  // mit Tableiste sitzt der Menüknopf in der Leiste
+    }
+    if (this._card && this._card._cfg && this._card._cfg.menu_button !== this._narrow) {
+      this._card.setConfig({ ...this._baseCfg, menu_button: this._narrow });
       if (this._hass) this._card.hass = this._hass;
     }
   }
   _render() {
     if (!this._hass || !this._panel) return;
+    const pc = this._panel.config || {};
+    const modern = pc.style === "modern";
+    if (modern && this._tabs === undefined) {
+      // Wallbox eingerichtet? Dann Tabs „Energiefluss | Wallbox“
+      if (!this._asking) {
+        this._asking = true;
+        const msg = { type: "zeo_sonnen/info" };
+        if (pc.entry_id) msg.entry_id = pc.entry_id;
+        this._hass.callWS(msg)
+          .then((info) => { this._tabs = !!(info && info.wallbox); })
+          .catch(() => { this._tabs = false; })
+          .finally(() => { this._asking = false; this._render(); });
+      }
+      return;
+    }
+    if (this._tabs) { this._renderTabs(pc); return; }
     if (!this._card) {
       // style aus der Integration: classic = Portal, modern = Hausansicht (zeo-sonnen-3d-card)
-      const pc = this._panel.config || {};
-      const modern = pc.style === "modern";
       const tag = modern ? "zeo-sonnen-3d-card" : "zeo-sonnen-card";
-      if (!customElements.get(tag)) {
-        if (!this._waiting) {
-          this._waiting = true;
-          customElements.whenDefined(tag).then(() => { this._waiting = false; this._render(); });
-        }
-        return;
-      }
+      if (!this._defined(tag)) return;
       this.style.cssText = modern
         ? "display:block;min-height:100vh;background:var(--primary-background-color)"
         : "display:block;min-height:100vh;background:#EEF0F2;box-sizing:border-box;padding:16px";
@@ -979,6 +998,72 @@ class ZeoSonnenPanel extends HTMLElement {
       this.appendChild(this._card);
     }
     this._card.hass = this._hass;
+  }
+  _defined(tag) {
+    if (customElements.get(tag)) return true;
+    if (!this._waitFor) this._waitFor = new Set();
+    if (!this._waitFor.has(tag)) {
+      this._waitFor.add(tag);
+      customElements.whenDefined(tag).then(() => { this._waitFor.delete(tag); this._render(); });
+    }
+    return false;
+  }
+  _renderTabs(pc) {
+    if (!this._bar) {
+      if (!this._defined("zeo-sonnen-3d-card") || !this._defined("zeo-sonnen-wallbox-card")) return;
+      this.style.cssText = "display:block;min-height:100vh;background:var(--primary-background-color)";
+      this._bar = document.createElement("div");
+      this._bar.attachShadow({ mode: "open" });
+      this.appendChild(this._bar);
+      this._views = {};
+      let tab = "flow";
+      try { tab = localStorage.getItem("zeo_sonnen_tab") || "flow"; } catch (e) { /* kein Speicher */ }
+      this._tab = ZP_TABS.some((t) => t.id === tab) ? tab : "flow";
+    }
+    if (!this._views[this._tab]) {
+      const t = ZP_TABS.find((x) => x.id === this._tab);
+      const el = document.createElement(t.tag);
+      const cfg = t.id === "flow" ? { entry_id: pc.entry_id, menu_button: false } : { entry: pc.entry_id };
+      if (t.id === "wallbox" && this._hass.states[ZP_MODE_HELPER]) cfg.mode = ZP_MODE_HELPER;
+      el.setConfig(cfg);
+      this.appendChild(el);
+      this._views[this._tab] = el;
+    }
+    Object.entries(this._views).forEach(([id, el]) => {
+      el.style.display = id === this._tab ? "" : "none";
+      if (id === this._tab) el.hass = this._hass;  // verborgene Ansicht nicht mitrechnen
+    });
+    this._paintBar();
+  }
+  _paintBar() {
+    if (!this._bar) return;
+    const b = this._bar.shadowRoot;
+    const key = `${this._tab}|${this._narrow}`;
+    if (this._barKey === key) return;
+    this._barKey = key;
+    b.innerHTML = `<style>
+      :host{display:block;position:sticky;top:0;z-index:5}
+      .bar{display:flex;align-items:center;gap:12px;height:52px;padding:0 16px;background:#0B2E35;
+        font-family:var(--ha-font-family-body,Roboto,"Helvetica Neue",Arial,sans-serif);box-shadow:0 1px 0 rgba(255,255,255,.06)}
+      .menu{flex:none;width:36px;height:36px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:18px;cursor:pointer}
+      .seg{display:flex;gap:2px;padding:3px;border-radius:12px;background:rgba(255,255,255,.1);margin:0 auto}
+      .seg button{font:inherit;font-size:14px;font-weight:500;color:rgba(255,255,255,.78);background:none;border:0;border-radius:9px;padding:7px 18px;cursor:pointer}
+      .seg button.act{background:#fff;color:#0E3A43;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+      .sp{flex:none;width:36px}
+    </style>
+    <div class="bar">
+      ${this._narrow ? `<button class="menu" aria-label="Menü">☰</button>` : ""}
+      <div class="seg" role="tablist">${ZP_TABS.map((t) => `<button role="tab" data-t="${t.id}" class="${t.id === this._tab ? "act" : ""}" aria-selected="${t.id === this._tab}">${t.label}</button>`).join("")}</div>
+      ${this._narrow ? `<span class="sp"></span>` : ""}
+    </div>`;
+    const m = b.querySelector(".menu");
+    if (m) m.addEventListener("click", () => this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })));
+    b.querySelectorAll(".seg button").forEach((btn) => btn.addEventListener("click", () => {
+      if (btn.dataset.t === this._tab) return;
+      this._tab = btn.dataset.t;
+      try { localStorage.setItem("zeo_sonnen_tab", this._tab); } catch (e) { /* kein Speicher */ }
+      this._render();
+    }));
   }
 }
 
@@ -999,3 +1084,7 @@ if (!customElements.get("zeo-sonnen-3d-card"))
   // gleiche Version wie diese Datei (die Integration hängt einen Hash der Frontend-Dateien an)
   import("/zeo_sonnen_static/zeo-sonnen-3d-card.js?v=" + (new URL(import.meta.url).searchParams.get("v") || SPC_VERSION))
     .catch((e) => console.warn("zeo-sonnen-3d-card:", e));
+// Wallbox-Ansicht (custom:zeo-sonnen-wallbox-card), ebenfalls eigene Datei
+if (!customElements.get("zeo-sonnen-wallbox-card"))
+  import("/zeo_sonnen_static/zeo-sonnen-wallbox-card.js?v=" + (new URL(import.meta.url).searchParams.get("v") || SPC_VERSION))
+    .catch((e) => console.warn("zeo-sonnen-wallbox-card:", e));
