@@ -17,7 +17,7 @@
  *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev2";
+const ZW_VERSION = "0.7.0-dev3";
 
 const ZK = {
   ev: "#9BD62A", ev2: "#6FAE12", petrol: "#0E3A43",
@@ -174,8 +174,10 @@ class ZeoSonnenWallboxCard extends HTMLElement {
               <div class="nhint" id="nhint"></div>
             </div>
           </div>
-          <div class="phases" id="phases"></div>
-          <button class="settgl" id="set-tgl" aria-expanded="false"><span>Einstellungen</span><em id="set-sum"></em><i>▾</i></button>
+          <div class="tgls">
+            <button class="settgl" id="set-tgl" aria-expanded="false"><span>Einstellungen</span><em id="set-sum"></em><i>▾</i></button>
+            <button class="settgl" id="det-tgl" aria-expanded="false"><span>Details</span><em id="det-sum"></em><i>▾</i></button>
+          </div>
           <div class="ctrls" id="set-box" hidden>
             <div class="ctl"><div><b>Ladestrom</b><small>Höchstwert je Phase</small></div>
               <div class="rng"><input type="range" id="set-cur" min="6" max="16" step="1"><em id="set-cur-v">–</em></div></div>
@@ -185,6 +187,22 @@ class ZeoSonnenWallboxCard extends HTMLElement {
             <div class="ctl"><div><b>Wallbox</b><small id="set-av-h">–</small></div><button class="btn" id="set-avail">–</button></div>
             <div class="confirm" id="set-conf" hidden><span id="set-conf-t"></span><div class="cbtns"><button id="set-no">Abbrechen</button><button class="yes" id="set-yes">Übernehmen</button></div></div>
             <div class="setfoot"><span id="set-info">Keine Begrenzung aktiv</span><button class="link" id="set-reset">Begrenzung aufheben</button></div>
+          </div>
+          <div class="dets" id="det-box" hidden>
+            <div class="dsec">
+              <div class="dh"><b>Phasen</b><small>Strom und Leistung je Phase</small></div>
+              <div class="phases" id="phases"></div>
+            </div>
+            <div class="dsec">
+              <div class="dh"><b>Gerät</b><span class="tag" id="online">–</span></div>
+              <div class="facts f4">
+                <div><span>Modell</span><b id="g-model">–</b></div>
+                <div><span>Firmware</span><b id="g-fw">–</b></div>
+                <div><span>Seriennummer</span><b id="g-serial">–</b></div>
+                <div><span>Fehlercode</span><b id="g-err">–</b></div>
+              </div>
+              <div class="facts f3 volts" id="volts"></div>
+            </div>
           </div>
         </article>
         <article class="card">
@@ -205,16 +223,6 @@ class ZeoSonnenWallboxCard extends HTMLElement {
             <div><span>Dieses Jahr</span><b id="e-year">–</b></div>
           </div>
           <div class="nhint mt">Zählerstand Wallbox: <b id="e-total">–</b></div>
-        </article>
-        <article class="card">
-          <header><h2>Gerät</h2><span class="tag" id="online">–</span></header>
-          <div class="facts f2">
-            <div><span>Modell</span><b id="g-model">–</b></div>
-            <div><span>Firmware</span><b id="g-fw">–</b></div>
-            <div><span>Seriennummer</span><b id="g-serial">–</b></div>
-            <div><span>Fehlercode</span><b id="g-err">–</b></div>
-          </div>
-          <div class="facts f3 volts" id="volts"></div>
         </article>
         <article class="card full">
           <header>
@@ -310,6 +318,9 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     const on = r.getElementById("online");
     on.textContent = offline ? "Offline" : "Online";
     on.style.color = offline ? ZK.err : ZK.ok;
+    const ds = r.getElementById("det-sum");
+    ds.textContent = offline ? "Offline" : err !== "–" && err !== "NoError" ? `Fehler ${err}` : "Online";
+    ds.style.color = offline || (err !== "–" && err !== "NoError") ? ZK.err : "";
 
     const av = this._st("available");
     const banner = r.getElementById("banner");
@@ -359,12 +370,19 @@ class ZeoSonnenWallboxCard extends HTMLElement {
   }
   _bindSettings() {
     const r = this.shadowRoot;
-    r.getElementById("set-tgl").addEventListener("click", () => {
-      const box = r.getElementById("set-box"), t = r.getElementById("set-tgl");
-      box.hidden = !box.hidden;
-      t.setAttribute("aria-expanded", String(!box.hidden));
-      if (box.hidden) this._done();
-    });
+    // Einstellungen und Details klappen unter den beiden Knöpfen auf, immer nur eins
+    const panes = { set: "set-box", det: "det-box" };
+    const toggle = (key) => {
+      for (const [k, id] of Object.entries(panes)) {
+        const box = r.getElementById(id), t = r.getElementById(`${k}-tgl`);
+        const was = !box.hidden;
+        box.hidden = k === key ? was : true;
+        t.setAttribute("aria-expanded", String(!box.hidden));
+        if (k === "set" && was && box.hidden) this._done();
+      }
+    };
+    r.getElementById("set-tgl").addEventListener("click", () => toggle("set"));
+    r.getElementById("det-tgl").addEventListener("click", () => toggle("det"));
     const slider = r.getElementById("set-cur");
     slider.max = String(this._maxA());
     const stage = () => {
@@ -618,7 +636,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:20px}
     .card{background:var(--zc);border-radius:16px;box-shadow:var(--zsh);padding:18px 20px;min-width:0}
     .card[hidden]{display:none}
-    .card.wide2{grid-column:span 2}.card.full{grid-column:1 / -1}
+    .card.wide2,.card.know3{grid-column:span 2}.card.full{grid-column:1 / -1}
     .grid{grid-auto-flow:row dense}
     .card header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
     h2{font-size:16px;font-weight:600;margin:0;color:var(--zh)}
@@ -630,7 +648,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .nstate{font-size:15px;font-weight:600}
     .npow{font-size:32px;font-weight:600;margin:2px 0;white-space:nowrap}
     .nhint{font-size:12.5px;color:var(--zs);line-height:1.4}.nhint.mt{margin-top:14px}
-    .phases{display:flex;flex-direction:column;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--zl)}
+    .phases{display:flex;flex-direction:column;gap:10px}
     .ph{display:grid;grid-template-columns:24px 1fr 64px 64px;align-items:center;gap:10px;font-size:13px}
     .ph span{color:var(--zs);font-weight:600}.ph b{text-align:right;font-weight:600}.ph small{text-align:right;color:var(--zs);font-size:12px}
     .pbar{height:10px;background:var(--zf);border-radius:999px;overflow:hidden}
@@ -655,7 +673,8 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .msg{padding:90px 0;text-align:center;color:var(--zs);font-size:13px}
     .know{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:9px;font-size:13px;line-height:1.45;color:var(--zi)}
     .know li::marker{color:${ZK.ev2}}
-    .settgl{display:flex;align-items:center;gap:10px;width:100%;margin-top:14px;padding:10px 12px;font:inherit;font-size:13.5px;font-weight:500;color:var(--zh);background:var(--zf);border:0;border-radius:12px;cursor:pointer}
+    .tgls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--zl)}
+    .settgl{display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;font:inherit;font-size:13.5px;font-weight:500;color:var(--zh);background:var(--zf);border:0;border-radius:12px;cursor:pointer}
     .settgl em{flex:1;text-align:right;font-style:normal;font-size:12px;color:var(--zs);font-weight:400}
     .settgl i{font-style:normal;transition:transform .2s}.settgl[aria-expanded="true"] i{transform:rotate(180deg)}
     .ctrls{display:flex;flex-direction:column;gap:10px;margin-top:10px}.ctrls[hidden]{display:none}
@@ -673,7 +692,13 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .setfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;color:var(--zs);padding:2px 4px}
     .link{font:inherit;font-size:12px;color:var(--zh);background:none;border:0;cursor:pointer;text-decoration:underline;padding:0}
     .link[hidden]{display:none}
-    .volts{margin-top:16px;padding-top:14px;border-top:1px solid var(--zl)}
+    .dets{display:flex;flex-direction:column;gap:10px;margin-top:10px}.dets[hidden]{display:none}
+    .dsec{border:1px solid var(--zl);border-radius:12px;padding:12px 14px}
+    .dh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px}
+    .dh b{font-size:13.5px;font-weight:600;color:var(--zh)}.dh small{font-size:11.5px;color:var(--zs)}
+    .facts.f4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .dsec .facts b{font-size:15px}
+    .volts{margin-top:14px;padding-top:12px;border-top:1px solid var(--zl)}
     @container (max-width:1100px){.grid{grid-template-columns:1fr 1fr}.card.wide2,.card.know3{grid-column:1 / -1}}
     @container (max-width:720px){
       .z3{border-radius:0}
@@ -684,6 +709,8 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       .now{gap:16px}.ring{width:110px;height:110px}
       .npow{font-size:26px}
       .ctl{flex-wrap:wrap}.seg.small{flex-wrap:nowrap}.rng input{width:110px}
+      .facts.f4{grid-template-columns:1fr 1fr}
+      .settgl em{display:none}
     }
     `;
   }
