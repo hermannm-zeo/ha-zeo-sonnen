@@ -15,10 +15,11 @@
  *   manager:    Status-Sensor des Lademanagers (Standard: sensor.wallbox_lademanager)
  *   dry_run:    input_boolean Trockenlauf (Standard: input_boolean.wallbox_trockenlauf)
  *   theme:      auto | light | dark
+ *   style:      modern (Standard) | classic (Look des Classic-Portals, immer hell, für die Einbettung dort)
  *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev5";
+const ZW_VERSION = "0.7.0-dev6";
 
 const ZK = {
   ev: "#9BD62A", ev2: "#6FAE12", petrol: "#0E3A43",
@@ -118,14 +119,15 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     if (this._emptyText === text && !this._built) return;
     this._built = false;
     this._emptyText = text;
-    this.shadowRoot.innerHTML = `<style>${this._css()}</style><div class="z3"><section class="hero"><div class="brand"><i>${this._svg(ZW_EV, 30)}</i><div><h1>${zesc(this._cfg.title)}</h1></div></div></section><section class="grid"><article class="card full"><div class="msg">${zesc(text)}</div></article></section></div>`;
+    this.shadowRoot.innerHTML = `<style>${this._css()}</style><div class="z3${this._cls()}"><section class="hero"><div class="brand"><i>${this._svg(ZW_EV, 30)}</i><div><h1>${zesc(this._cfg.title)}</h1></div></div></section><section class="grid"><article class="card full"><div class="msg">${zesc(text)}</div></article></section></div>`;
     this._theme();
   }
   connectedCallback() { if (!this._timer) this._timer = setInterval(() => this._loadStats(), 5 * 60000); }
   disconnectedCallback() { clearInterval(this._timer); this._timer = null; }
 
+  _cls() { return this._cfg.style === "classic" ? " classic" : ""; }
   _theme() {
-    const t = this._cfg.theme || "auto";
+    const t = this._cfg.style === "classic" ? "light" : this._cfg.theme || "auto";
     const h = this._hass || {}, sel = h.selectedTheme;
     const sys = !sel || typeof sel.dark !== "boolean";
     const dev = typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
@@ -156,7 +158,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     const dev = (this._wb() && this._wb().device) || {};
     const devName = c.name || (dev.model === "AHP02-60327" ? "sonnenCharger 3" : dev.model) || "sonnenCharger 3";
     this.shadowRoot.innerHTML = `<style>${this._css()}</style>
-    <div class="z3">
+    <div class="z3${this._cls()}">
       <section class="hero">
         <div class="brand"><i>${this._svg(ZW_EV, 30)}</i><div><h1>${zesc(c.title)}</h1><div class="subt" id="subt">${zesc(devName)}</div></div></div>
         <div class="hstat"><span class="chip" id="chip"><i></i><span></span></span></div>
@@ -970,6 +972,29 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .facts.f4{grid-template-columns:repeat(4,minmax(0,1fr))}
     .dsec .facts b{font-size:15px}
     .volts{margin-top:14px;padding-top:12px;border-top:1px solid var(--zl)}
+    /* ---------- Stil classic: Optik des Classic-Portals (my.sonnen) ---------- */
+    .z3.classic{--zi:#181A27;--zs:#61687A;--zd:#9AA0AA;--zl:#DADCE0;--zbg:transparent;--zc:#fff;--zf:#F6F8FA;--zseg:#EEF0F2;--zsa:#fff;
+      --zgl:#EEF0F2;--zzl:#C5C6C9;--zh:#181A27;--zsh:0 1px 4px rgba(0,0,0,.15);
+      max-width:none;border-radius:0;overflow:visible;font-family:"SonnenText","Helvetica Neue",Helvetica,Arial,sans-serif}
+    .z3.classic .hero{background:#fff;color:var(--zi);box-shadow:var(--zsh);padding:16px 20px;margin-bottom:16px}
+    .z3.classic .brand i{background:#F6F8FA;color:#0B7AC2;width:44px;height:44px}
+    .z3.classic h1{font-size:17px;font-weight:500}
+    .z3.classic .subt{opacity:1;color:var(--zs)}
+    .z3.classic .chip{background:#F6F8FA;color:var(--zi);font-weight:400}
+    .z3.classic .banner{margin:0 0 16px}
+    .z3.classic .grid{padding:0 2px 4px;gap:16px}
+    @container (max-width:720px){.z3.classic .settgl{padding:10px 6px;gap:4px;font-size:12.5px}}
+    .z3.classic .card{border-radius:0}
+    .z3.classic h2{font-size:16px;font-weight:400}
+    .z3.classic .card header{border-bottom:1px solid var(--zl);padding-bottom:10px}
+    .z3.classic .seg,.z3.classic .seg button,.z3.classic .settgl,.z3.classic .ctl,.z3.classic .btn,.z3.classic .dsec,
+    .z3.classic .vb,.z3.classic .vit,.z3.classic .vrow,.z3.classic .vq,.z3.classic .vf input,.z3.classic .vfix,
+    .z3.classic .confirm,.z3.classic .confirm button,.z3.classic .vdel,.z3.classic .vwarn,.z3.classic .verr{border-radius:4px}
+    .z3.classic .seg button.act,.z3.classic .settgl{color:#0B7AC2}
+    .z3.classic .seg button.act{color:#0B7AC2}
+    .z3.classic .confirm button.yes,.z3.classic .btn.yes{background:#0B7AC2;border-color:#0B7AC2}
+    .z3.classic .link{color:#0B7AC2}
+    .z3.classic .vrow.act{border-color:#8CC63F}
     @container (max-width:1100px){
       .grid{grid-template-columns:1fr 1fr}
       .card.wide2,.card.know3{grid-column:1 / -1;grid-row:auto}

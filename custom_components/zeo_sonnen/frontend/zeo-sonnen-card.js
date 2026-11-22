@@ -67,6 +67,8 @@ const PAGES = [
   { id: "analysis", label: "Auswertung", icon: "mdi:chart-areaspline" },
   { id: "battery", label: "sonnenBatterie", icon: "mdi:battery-outline" },
 ];
+// nur wenn zeo_sonnen/info eine Wallbox meldet
+const WALLBOX_PAGE = { id: "wallbox", label: "Wallbox", icon: "mdi:ev-station" };
 
 const fmtNum = (v, d = 1) =>
   v == null || isNaN(v) ? "–" : Number(v).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -261,7 +263,7 @@ class SonnenPortalCard extends HTMLElement {
           <div class="conn" id="conn"></div>
         </div>
         <div class="body">
-          <nav class="menu">${PAGES.map(
+          <nav class="menu">${this._pages().map(
             (p) => `<a data-page="${p.id}"><ha-icon icon="${p.icon}"></ha-icon><span>${p.label}</span></a>`
           ).join("")}</nav>
           <main id="main"></main>
@@ -286,15 +288,18 @@ class SonnenPortalCard extends HTMLElement {
     const root = this.shadowRoot;
     root.querySelectorAll(".menu a").forEach((a) => a.classList.toggle("active", a.dataset.page === this._page));
     const main = root.getElementById("main");
-    if (!PAGES.some((p) => p.id === this._page)) this._page = "overview";
-    const title = PAGES.find((p) => p.id === this._page).label;
+    const pages = this._pages();
+    if (!pages.some((p) => p.id === this._page)) this._page = "overview";
+    const title = pages.find((p) => p.id === this._page).label;
     this._flowSig = null;
     let html = `<div id="banner"></div><h1>${this._page === "overview" ? "Willkommen" : title}</h1>`;
     if (this._page === "overview") html += this._tplOverview();
     if (this._page === "flow") html += `<div class="flowwrap" id="flow"></div>`;
     if (this._page === "analysis") html += this._tplAnalysis();
     if (this._page === "battery") html += this._tplBattery();
+    if (this._page === "wallbox") html += `<div id="wbhost"></div>`;
     main.innerHTML = html;
+    if (this._page === "wallbox") this._mountWallbox();
     if (this._page === "overview") this._bindOverview();
     if (this._page === "analysis") this._bindAnalysis();
     if (this._page === "battery") this._bindBattery();
@@ -325,6 +330,32 @@ class SonnenPortalCard extends HTMLElement {
     if (this._page === "flow") this._updFlow();
     if (this._page === "battery") this._updBattery(h);
     if (this._page === "analysis" && !this._anaLoaded) this._loadAnalysis();
+    if (this._page === "wallbox" && this._wbEl) this._wbEl.hass = this._hass;
+  }
+
+  /* ---------- Wallbox (eigene Karte zeo-sonnen-wallbox-card im Classic-Stil) ---------- */
+  _pages() {
+    return this._info && this._info.wallbox ? [...PAGES, WALLBOX_PAGE] : PAGES;
+  }
+  _mountWallbox() {
+    const host = this.shadowRoot.getElementById("wbhost");
+    if (!host) return;
+    if (!customElements.get("zeo-sonnen-wallbox-card")) {
+      host.innerHTML = `<div class="loading">Lade Wallbox …</div>`;
+      customElements.whenDefined("zeo-sonnen-wallbox-card").then(() => { if (this._page === "wallbox") this._mountWallbox(); });
+      return;
+    }
+    if (!this._wbEl) {
+      // ein Element behalten, damit Einstellungen und Fahrzeugauswahl beim Seitenwechsel nicht neu laden
+      this._wbEl = document.createElement("zeo-sonnen-wallbox-card");
+      const cfg = { style: "classic", title: "Meine Wallbox" };
+      if (this._cfg.entry_id || (this._info && this._info.entry_id)) cfg.entry = this._cfg.entry_id || this._info.entry_id;
+      if (this._hass && this._hass.states[ZP_MODE_HELPER]) cfg.mode = ZP_MODE_HELPER;
+      this._wbEl.setConfig(cfg);
+    }
+    host.innerHTML = "";
+    host.appendChild(this._wbEl);
+    if (this._hass) this._wbEl.hass = this._hass;
   }
 
   /* ================================================================ */
