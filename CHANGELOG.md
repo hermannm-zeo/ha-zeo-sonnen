@@ -18,6 +18,7 @@
 - Mitgelieferter Fahrzeugkatalog `vehicles.json` (OpenEV Data, CDLA-Permissive-2.0, und Open EV Data/KilowattApp, MIT) und Build-Skript `tools/build_vehicle_db.py`
 - Eigene Ergänzungen in `tools/vehicles_extra.json` (61 Ausführungen mit Quelle): Opel Corsa/Astra/Mokka/Frontera/Grandland/Combo/Vivaro/Zafira sowie Neuheiten 2025/26 (VW ID. Polo und ID. Cross, Cupra Raval, Škoda Epiq, BMW iX3 und i3 Neue Klasse, Mercedes GLC und GLB EQ, Kia EV2 und EV5, Hyundai IONIQ 3, Renault Twingo, Nissan Leaf 3. Generation, Fiat Grande Panda, Tesla Model Y Standard)
 - **Wallbox im Classic-Portal**: Menüpunkt „Wallbox“ (nur mit eingerichteter Wallbox) mit allen Funktionen der Wallbox-Karte inklusive Lademodus, Einstellungen und Fahrzeugauswahl, im Classic-Look (Kartenoption `style: classic`, 0.7.0-dev6)
+- **Classic-Portal, Seite sonnenBatterie**: Betriebsart und Notstrompuffer erst nach „Übernehmen“, manuelle Steuerung in Betriebsart „Manuell“ wie in der Hauskarte (Laden/Entladen mit fester Leistung in W, Fahrt auf Ziel-Ladestand in %, Stopp, jeweils mit Rückfrage, Status der Zielfahrt)
 - Websocket-Befehle `zeo_sonnen/vehicles/catalog`, `search`, `list`, `save`, `delete`, `activate`
 
 ### Geändert

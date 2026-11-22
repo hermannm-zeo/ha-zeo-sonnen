@@ -4,6 +4,10 @@
  * den Websocket-Befehl zeo_sonnen/info, die Entity-IDs sind damit egal.
  */
 const SPC_VERSION = "0.5.0";
+// Manuelle Steuerung wie in der Hauskarte: Grenzen der Eingabe in W, Fahrt auf Ziel-Ladestand mit voller Leistung
+const SPC_MAN_MIN = 100, SPC_MAN_MAX = 20000;
+const SPC_TARGET_W = 9900;
+const SPC_TARGET_ST = { charging: "lädt", discharging: "entlädt" };
 
 const C = {
   navy: "#0A1535",
@@ -528,23 +532,136 @@ class SonnenPortalCard extends HTMLElement {
       ${this._hasBackup() ? `<div class="srow">
         <div><b>Notstrompuffer</b><span>Reserve, die für einen Stromausfall in der Batterie bleibt.</span></div>
         <div class="ctl"><input type="range" min="0" max="100" step="1" id="c-res"><span id="c-res-v"></span></div>
-      </div>` : ""}
+      </div>
+      <div class="confirm" id="c-res-ok" hidden><span id="c-res-q"></span><span class="cbtns"><button class="no" id="c-res-no">Abbrechen</button><button class="yes" id="c-res-yes">Übernehmen</button></span></div>` : ""}
       <div class="srow">
         <div><b>Betriebsart</b><span>Steuerung des Lade- und Entladeverhaltens.</span></div>
         <div class="ctl"><select id="c-mode"></select></div>
       </div>
+      <div class="confirm" id="c-mode-ok" hidden><span id="c-mode-q"></span><span class="cbtns"><button class="no" id="c-mode-no">Abbrechen</button><button class="yes" id="c-mode-yes">Übernehmen</button></span></div>
+      <div class="man" id="c-man" hidden>
+        <div class="manh"><div><b>Manuelle Steuerung</b><span id="c-man-st">–</span></div>
+          <span class="pick" id="c-man-unit"><button data-u="w">Leistung</button><button data-u="pct">Ladestand</button></span></div>
+        <div class="manrow" id="c-man-wrow">
+          <span class="pick" id="c-man-dir"><button data-d="charge">Laden</button><button data-d="discharge">Entladen</button></span>
+          <label class="pw"><input type="number" id="c-man-w" min="${SPC_MAN_MIN}" max="${SPC_MAN_MAX}" step="100" value="1000" inputmode="numeric" aria-label="Leistung in Watt"><em>W</em></label>
+        </div>
+        <div class="manrow" id="c-man-prow" hidden>
+          <span class="manhint">Fährt mit voller Leistung (${fmtNum(SPC_TARGET_W / 1000, 1)} kW) auf den Ziel-Ladestand und hält dort.</span>
+          <label class="pw"><input type="number" id="c-man-p" min="0" max="100" step="1" value="28" inputmode="numeric" aria-label="Ziel-Ladestand in Prozent"><em>%</em></label>
+        </div>
+        <div class="mbtns"><button class="mbtn go" id="c-man-go">Starten</button><button class="mbtn stop" id="c-man-stop">Stopp</button></div>
+        <div class="confirm" id="c-man-ok" hidden><span id="c-man-q"></span><span class="cbtns"><button class="no" id="c-man-no">Abbrechen</button><button class="yes" id="c-man-yes">Ja, ausführen</button></span></div>
+      </div>
     </div>`;
+  }
+  _entryId() {
+    return this._cfg.entry_id || (this._info && this._info.entry_id) || null;
   }
   _bindBattery() {
     const r = this.shadowRoot;
-    const res = r.getElementById("c-res");
-    if (res) res.addEventListener("input", () => (r.getElementById("c-res-v").textContent = `${res.value} %`));
-    if (res) res.addEventListener("change", () => {
-      this._hass.callService("number", "set_value", { entity_id: this._cfg.entities.backup_reserve, value: Number(res.value) });
-    });
-    const sel = r.getElementById("c-mode");
+    const $ = (id) => r.getElementById(id);
+    this._pendingMode = null;
+    this._pendingRes = null;
+    this._pendingMan = null;
+    // Notstrompuffer erst nach Bestätigung senden
+    const res = $("c-res");
+    if (res) {
+      const rbox = $("c-res-ok");
+      const closeR = () => { this._pendingRes = null; rbox.hidden = true; this._update(); };
+      res.addEventListener("input", () => ($("c-res-v").textContent = `${res.value} %`));
+      res.addEventListener("change", () => {
+        if (Number(res.value) === this._num("backup_reserve")) { closeR(); return; }
+        this._pendingRes = Number(res.value);
+        $("c-res-q").textContent = `Notstrompuffer auf ${res.value} % setzen?`;
+        rbox.hidden = false;
+      });
+      $("c-res-no").addEventListener("click", closeR);
+      $("c-res-yes").addEventListener("click", async () => {
+        const yes = $("c-res-yes");
+        yes.disabled = true;
+        try {
+          await this._hass.callService("number", "set_value", { entity_id: this._cfg.entities.backup_reserve, value: this._pendingRes });
+        } finally { yes.disabled = false; closeR(); }
+      });
+    }
+    // Betriebsart erst nach Bestätigung senden
+    const sel = $("c-mode");
+    const box = $("c-mode-ok");
+    const closeBox = () => { this._pendingMode = null; box.hidden = true; this._update(); };
     sel.addEventListener("change", () => {
-      this._hass.callService("select", "select_option", { entity_id: this._cfg.entities.operating_mode, option: sel.value });
+      const cur = (this._st("operating_mode") || {}).state;
+      if (sel.value === cur) { closeBox(); return; }
+      this._pendingMode = sel.value;
+      $("c-mode-q").textContent = `Betriebsart auf „${MODE_LABEL[sel.value] || sel.value}“ ändern?`;
+      box.hidden = false;
+    });
+    $("c-mode-no").addEventListener("click", closeBox);
+    $("c-mode-yes").addEventListener("click", async () => {
+      const yes = $("c-mode-yes");
+      yes.disabled = true;
+      try {
+        await this._hass.callService("select", "select_option", { entity_id: this._cfg.entities.operating_mode, option: this._pendingMode });
+      } finally { yes.disabled = false; closeBox(); }
+    });
+    // Manuelle Steuerung (nur in Betriebsart „Manuell“): feste Leistung in W oder Fahrt auf Ziel-Ladestand in %
+    this._manDir = this._manDir || "charge";
+    this._manUnit = this._manUnit || "w";
+    const paint = () => {
+      r.querySelectorAll("#c-man-dir button").forEach((b) => b.classList.toggle("on", b.dataset.d === this._manDir));
+      r.querySelectorAll("#c-man-unit button").forEach((b) => b.classList.toggle("on", b.dataset.u === this._manUnit));
+      $("c-man-wrow").hidden = this._manUnit !== "w";
+      $("c-man-prow").hidden = this._manUnit !== "pct";
+    };
+    paint();
+    r.querySelectorAll("#c-man-dir button").forEach((b) => b.addEventListener("click", () => { this._manDir = b.dataset.d; paint(); }));
+    r.querySelectorAll("#c-man-unit button").forEach((b) => b.addEventListener("click", () => { this._manUnit = b.dataset.u; paint(); }));
+    const mbox = $("c-man-ok");
+    const closeM = (msg) => {
+      this._pendingMan = null;
+      mbox.hidden = true;
+      if (msg) { this._manMsg = msg; clearTimeout(this._manT); this._manT = setTimeout(() => { this._manMsg = null; this._update(); }, 5000); }
+      this._update();
+    };
+    const askM = (q, run) => { this._pendingMan = run; $("c-man-q").textContent = q; mbox.hidden = false; };
+    $("c-man-go").addEventListener("click", () => {
+      if (this._manUnit === "pct") {
+        const pct = Math.round(Number($("c-man-p").value));
+        const soc = this._num("soc");
+        if (!(pct >= 0 && pct <= 100)) { closeM("Bitte einen Ladestand zwischen 0 und 100 % eingeben."); return; }
+        if (soc == null) { closeM("Der Ladestand der Batterie ist gerade nicht bekannt."); return; }
+        if (pct === Math.round(soc)) { closeM(`Die Batterie steht bereits bei ${fmtNum(pct, 0)} %.`); return; }
+        $("c-man-p").value = pct;
+        const down = pct < soc;
+        const rsv = this._num("backup_reserve");
+        const warn = down && rsv != null && pct < rsv
+          ? ` Achtung: Der Notstrompuffer steht auf ${fmtNum(rsv, 0)} %, die Batterie hält vermutlich dort an. Puffer vorher absenken.` : "";
+        askM(`Speicher von ${fmtNum(soc, 0)} % auf ${fmtNum(pct, 0)} % ${down ? "entladen" : "laden"}, mit voller Leistung (${fmtNum(SPC_TARGET_W, 0)} W)? Danach bleibt er bei 0 W in Manuell stehen.${down ? "" : " Fehlt Sonnenstrom, kommt der Strom aus dem Netz."}${warn}`,
+          { target: pct, done: `Fahrt auf ${fmtNum(pct, 0)} % gestartet` });
+        return;
+      }
+      const w = Math.round(Number($("c-man-w").value) / 100) * 100;
+      if (!(w >= SPC_MAN_MIN && w <= SPC_MAN_MAX)) { closeM(`Bitte eine Leistung zwischen ${fmtNum(SPC_MAN_MIN, 0)} und ${fmtNum(SPC_MAN_MAX, 0)} W eingeben.`); return; }
+      $("c-man-w").value = w;
+      const dir = this._manDir;
+      askM(dir === "charge"
+        ? `Speicher mit ${fmtNum(w, 0)} W laden? Fehlt Sonnenstrom, kommt der Strom aus dem Netz.`
+        : `Speicher mit ${fmtNum(w, 0)} W entladen? Was das Haus nicht braucht, kann ins Netz gehen.`,
+      { direction: dir, power: w, done: dir === "charge" ? "Laden gestartet" : "Entladen gestartet" });
+    });
+    $("c-man-stop").addEventListener("click", () => askM("Laden bzw. Entladen stoppen (0 W)?", { direction: "charge", power: 0, done: "Gestoppt" }));
+    $("c-man-no").addEventListener("click", () => closeM());
+    $("c-man-yes").addEventListener("click", async () => {
+      const run = this._pendingMan, yes = $("c-man-yes");
+      if (!run) return;
+      yes.disabled = true;
+      try {
+        if (run.target != null) await this._hass.callService("zeo_sonnen", "set_target_soc", { config_entry_id: this._entryId(), soc: run.target });
+        else await this._hass.callService("zeo_sonnen", "set_power", { config_entry_id: this._entryId(), direction: run.direction, power: run.power });
+        closeM(run.done);
+      } catch (e) {
+        closeM(`Fehler: ${(e && e.message) || "Batterie hat nicht reagiert"}`);
+      } finally { yes.disabled = false; }
     });
   }
   _updBattery(h) {
@@ -572,13 +689,13 @@ class SonnenPortalCard extends HTMLElement {
     const res = r.getElementById("c-res");
     const rv = this._num("backup_reserve");
     const avail = this._avail();
-    if (res && this.shadowRoot.activeElement !== res) {
+    if (res && this.shadowRoot.activeElement !== res && this._pendingRes == null) {
       res.value = rv == null ? 0 : rv;
       res.disabled = !avail || rv == null;
       set("c-res-v", rv == null ? "–" : `${fmtNum(rv, 0)} %`);
     }
     const sel = r.getElementById("c-mode");
-    if (sel && this.shadowRoot.activeElement !== sel) {
+    if (sel && this.shadowRoot.activeElement !== sel && !this._pendingMode) {
       const opts = (modeS && modeS.attributes.options) || [];
       const key = opts.join("|");
       if (sel.dataset.k !== key) {
@@ -587,6 +704,23 @@ class SonnenPortalCard extends HTMLElement {
       }
       if (mode && opts.includes(mode)) sel.value = mode;
       sel.disabled = !avail || !opts.includes(mode);
+    }
+    // Manuelle Steuerung nur in Betriebsart „Manuell“ und wenn der Eintrag bekannt ist
+    const man = r.getElementById("c-man");
+    if (man) {
+      const on = avail && mode === "manual" && !!this._entryId();
+      man.hidden = !on;
+      if (on) {
+        const f = this._flows();
+        const ts = this._st("target_soc"), ta = (ts && ts.attributes) || {};
+        const now = f.ch > 0 ? `lädt mit ${kW(f.ch)} kW` : f.dis > 0 ? `entlädt mit ${kW(f.dis)} kW` : "steht";
+        const tgt = ts && SPC_TARGET_ST[ts.state] ? `Fahrt auf ${fmtNum(ta.target, 0)} % läuft, Speicher ${now}`
+          : ts && ts.state === "reached" && f.ch <= 0 && f.dis <= 0 ? `Ziel ${fmtNum(ta.target, 0)} % erreicht, hält bei 0 W` : null;
+        set("c-man-st", this._manMsg || tgt || `Speicher ${now}${soc == null ? "" : ` · ${fmtNum(soc, 0)} %`}`);
+      } else if (this._pendingMan) {
+        this._pendingMan = null;
+        r.getElementById("c-man-ok").hidden = true;
+      }
     }
   }
 
@@ -920,6 +1054,24 @@ class SonnenPortalCard extends HTMLElement {
     .ctl{display:flex;align-items:center;gap:10px}
     .ctl input[type=range]{width:180px;accent-color:${C.blue}}
     .ctl span{min-width:44px;text-align:right;font-size:14px;color:${C.text}}
+    .confirm{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin:4px 0 10px;padding:10px 14px;background:#FFF6E5;border-left:3px solid ${C.warn};font-size:13px;color:${C.text}}
+    .confirm[hidden]{display:none}
+    .cbtns{display:flex;gap:8px}
+    .confirm button,.mbtn,.pick button{font:inherit;font-size:13px;padding:7px 14px;cursor:pointer;border:1px solid ${C.light};border-radius:3px;background:#fff;color:${C.text}}
+    .confirm button.yes,.mbtn.go{background:${C.blue};border-color:${C.blue};color:#fff}
+    .confirm button:disabled{opacity:.5;cursor:default}
+    .man{display:flex;flex-direction:column;gap:12px;margin:4px 0 14px;padding:14px 16px;background:#F6F8FA;border-top:1px solid #EEF0F2}
+    .man[hidden],.manrow[hidden]{display:none}
+    .manh{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    .manh b{display:block;font-weight:500;font-size:14px}.manh span#c-man-st{font-size:12px;color:${C.grey}}
+    .manrow{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+    .manhint{flex:1;min-width:180px;font-size:12px;color:${C.grey};line-height:1.4}
+    .pick{display:inline-flex}.pick button{border-radius:0;margin-left:-1px}.pick button:first-child{border-radius:3px 0 0 3px;margin-left:0}.pick button:last-child{border-radius:0 3px 3px 0}
+    .pick button.on{background:${C.blue};border-color:${C.blue};color:#fff}
+    .pw{display:flex;align-items:center;gap:6px}.pw input{width:110px;font:inherit;font-size:15px;text-align:right;padding:6px 10px;border:1px solid ${C.light};border-radius:3px;background:#fff;color:${C.text}}
+    .pw em{font-style:normal;color:${C.grey}}
+    .mbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .mbtn.stop{color:${C.err};border-color:${C.err}}
     .ctl select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid ${C.light};border-radius:3px;background:#fff;color:${C.text}}
     /* Auswertung */
     .ana{padding:16px 20px 20px}
