@@ -140,7 +140,8 @@ def _ziel(veh):
             "target_need_kw": round(min(tg.need_w, 1e6) / 1000, 2),
             "target_departure": dep_local.isoformat(timespec="minutes"),
             "target_reach_soc": round(min(100.0, reach)) if reach is not None else None,
-            "target_vehicle": " ".join(x for x in (veh.get("brand"), veh.get("model")) if x),
+            # pyscript kennt keine Generator-Ausdrücke, daher von Hand
+            "target_vehicle": f"{veh.get('brand') or ''} {veh.get('model') or ''}".strip(),
         }
     )
     # spätestens ab: wenn der nötige Wert die Startschwelle 1,5 kW erreicht
