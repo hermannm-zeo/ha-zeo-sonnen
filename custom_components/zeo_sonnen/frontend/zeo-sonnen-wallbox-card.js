@@ -548,10 +548,11 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       zn.placeholder = a.target_soc_estimate != null ? `ca. ${zf(a.target_soc_estimate, 0)}` : "z. B. 30";
     }
     const veh = this._vehActive();
+    const vn = veh ? (veh.name || [veh.brand, veh.model].filter(Boolean).join(" ")) : "";
     let info;
     if (this._vehOk && !veh) info = "Kein Fahrzeug gewählt. Bitte unter „Fahrzeug“ auswählen.";
-    else if (a.target_state === "ok") info = `Noch ca. ${zf(a.target_energy_kwh, 1)} kWh bis ${String(a.target_departure).slice(11, 16)} Uhr${veh ? ` · ${veh.name}` : ""}`;
-    else info = `Ladestand ablesen (Auto oder App) und eintragen${veh ? ` · ${veh.name}` : ""}`;
+    else if (a.target_state === "ok") info = `Noch ca. ${zf(a.target_energy_kwh, 1)} kWh bis ${String(a.target_departure).slice(11, 16)} Uhr${vn ? ` · ${vn}` : ""}`;
+    else info = `Ladestand ablesen (Auto oder App) und eintragen${vn ? ` · ${vn}` : ""}`;
     r.getElementById("z-info").textContent = this._zFlash || info;
   }
   async _zApply() {
