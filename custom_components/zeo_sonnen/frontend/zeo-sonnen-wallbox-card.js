@@ -3,6 +3,7 @@
  *
  * Daten aus dem OCPP-Server von zeo_sonnen (Websocket zeo_sonnen/info → Entitäten), Statistiken aus dem Recorder.
  * Befehle über die Aktionen zeo_sonnen.wallbox_set_limit / zeo_sonnen.wallbox_clear_limit.
+ * Fahrzeuge des Haushalts über zeo_sonnen/vehicles/* (Auswahl Marke → Modell → Ausführung aus dem Katalog der Integration).
  * Konfiguration:
  *   entry:      entry_id der Integration (Standard: erste geladene)
  *   title:      Überschrift (Standard: Meine Wallbox)
@@ -17,7 +18,7 @@
  *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev3";
+const ZW_VERSION = "0.7.0-dev4";
 
 const ZK = {
   ev: "#9BD62A", ev2: "#6FAE12", petrol: "#0E3A43",
@@ -42,6 +43,8 @@ const ZW_STOP = {
   EmergencyStop: "Not-Aus", DeAuthorized: "Karte nicht berechtigt", UnlockCommand: "Entriegelt", Other: "Sonstiges",
 };
 const ZW_WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+// Marken, die oben in der Fahrzeugauswahl stehen (Neuzulassungen DE, grob)
+const ZW_TOP_BRANDS = ["Volkswagen", "Tesla", "Škoda", "BMW", "Mercedes-Benz", "Audi", "Hyundai", "Kia", "Renault", "Opel", "Cupra", "Fiat", "MG", "BYD", "Volvo", "smart", "Peugeot", "Polestar"];
 
 const zf = (v, d = 1) =>
   v == null || isNaN(v) ? "–" : Number(v).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -176,8 +179,10 @@ class ZeoSonnenWallboxCard extends HTMLElement {
           </div>
           <div class="tgls">
             <button class="settgl" id="set-tgl" aria-expanded="false"><span>Einstellungen</span><em id="set-sum"></em><i>▾</i></button>
+            <button class="settgl" id="veh-tgl" aria-expanded="false" hidden><span>Fahrzeug</span><em id="veh-sum"></em><i>▾</i></button>
             <button class="settgl" id="det-tgl" aria-expanded="false"><span>Details</span><em id="det-sum"></em><i>▾</i></button>
           </div>
+          <div class="vehs" id="veh-box" hidden></div>
           <div class="ctrls" id="set-box" hidden>
             <div class="ctl"><div><b>Ladestrom</b><small>Höchstwert je Phase</small></div>
               <div class="rng"><input type="range" id="set-cur" min="6" max="16" step="1"><em id="set-cur-v">–</em></div></div>
@@ -371,7 +376,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
   _bindSettings() {
     const r = this.shadowRoot;
     // Einstellungen und Details klappen unter den beiden Knöpfen auf, immer nur eins
-    const panes = { set: "set-box", det: "det-box" };
+    const panes = { set: "set-box", veh: "veh-box", det: "det-box" };
     const toggle = (key) => {
       for (const [k, id] of Object.entries(panes)) {
         const box = r.getElementById(id), t = r.getElementById(`${k}-tgl`);
@@ -383,6 +388,8 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     };
     r.getElementById("set-tgl").addEventListener("click", () => toggle("set"));
     r.getElementById("det-tgl").addEventListener("click", () => toggle("det"));
+    r.getElementById("veh-tgl").addEventListener("click", () => { toggle("veh"); if (!r.getElementById("veh-box").hidden) this._vehOpen(); });
+    this._bindVehicles();
     const slider = r.getElementById("set-cur");
     slider.max = String(this._maxA());
     const stage = () => {
@@ -505,6 +512,228 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       <g transform="translate(${size / 2 - 17} ${size / 2 - 27})" style="color:${on ? ZK.ev2 : "var(--zd)"}"><path d="${ZW_EV}" fill="currentColor" transform="scale(1.4)"/></g>
       <text x="${size / 2}" y="${size / 2 + 30}" text-anchor="middle" class="rsub">${Math.round(pc * 100)} % von ${zf(max, 0)} kW</text>
     </svg>`;
+  }
+
+  /* ---------- Fahrzeuge (Haushalt) und Auswahl Marke → Modell → Ausführung ---------- */
+  async _vehWS(type, extra = {}) { return this._hass.callWS({ type: `zeo_sonnen/vehicles/${type}`, ...extra }); }
+  async _vehLoad() {
+    try {
+      this._veh = await this._vehWS("list");
+      this._vehOk = true;
+    } catch (e) {
+      this._vehOk = false;  // ältere Integration ohne Fahrzeuge: Knopf bleibt aus
+    }
+    this._vehSum();
+  }
+  _vehSum() {
+    const r = this.shadowRoot, t = r && r.getElementById("veh-tgl");
+    if (!t) return;
+    t.hidden = !this._vehOk;
+    const a = this._vehActive();
+    r.getElementById("veh-sum").textContent = a ? a.name : "Nicht gewählt";
+  }
+  _vehActive() { const v = this._veh; return v ? (v.vehicles || []).find((x) => x.id === v.active) || null : null; }
+  _vehOpen() {
+    if (!this._vw || this._vw.view !== "form") this._vw = { view: (this._veh && this._veh.vehicles.length) ? "list" : "brand" };
+    this._vehRender();
+  }
+  _vehSpec(kwh, ac, ph) {
+    const p = [];
+    if (kwh != null) p.push(`${zf(kwh, kwh % 1 ? 1 : 0)} kWh`);
+    if (ac != null) p.push(`${zf(ac, ac % 1 ? 1 : 0)} kW${ph ? ` ${ph}-phasig` : ""}`);
+    return p.join(" · ");
+  }
+  _vehYears(y) { return !y ? "" : y[0] === y[1] ? String(y[0]) : `${y[0]}–${y[1]}`; }
+  async _vehCat(params = {}) {
+    const key = JSON.stringify(params);
+    this._vehCache = this._vehCache || {};
+    if (!this._vehCache[key]) this._vehCache[key] = this._vehWS("catalog", params).catch((e) => { delete this._vehCache[key]; throw e; });
+    return this._vehCache[key];
+  }
+  _bindVehicles() {
+    const box = this.shadowRoot.getElementById("veh-box");
+    box.addEventListener("click", (ev) => {
+      const el = ev.target.closest("[data-act]");
+      if (el && box.contains(el)) this._vehAct(el.dataset.act, el.dataset);
+    });
+    box.addEventListener("input", (ev) => {
+      if (ev.target.id === "veh-q") { this._vw.q = ev.target.value; clearTimeout(this._vqT); this._vqT = setTimeout(() => this._vehList(), 250); }
+    });
+    box.addEventListener("submit", (ev) => { ev.preventDefault(); this._vehAct("save", {}); });
+    this._vehLoad();
+  }
+  async _vehAct(act, d) {
+    const w = this._vw;
+    try {
+      if (act === "add") this._vw = { view: "brand" };
+      else if (act === "list") this._vw = { view: "list" };
+      else if (act === "brand") this._vw = { view: "model", brand: d.b };
+      else if (act === "model") this._vw = { view: "variant", brand: d.b, model: d.m };
+      else if (act === "back") this._vw = w.view === "variant" ? { view: "model", brand: w.brand } : w.view === "model" ? { view: "brand" } : { view: (this._veh && this._veh.vehicles.length) ? "list" : "brand" };
+      else if (act === "variant") {
+        const res = await this._vehCat({ brand: w.brand, model: w.model });
+        const v = res.variants.find((x) => x.id === d.id);
+        if (!v) return;
+        this._vw = { view: "form", back: w, f: { name: `${res.brand} ${res.model}`, brand: res.brand, model: res.model, variant: v.n, years: v.y,
+          capacity_kwh: v.kwh, ac_kw: v.ac, phases: v.ph, catalog_id: v.id }, fromCat: true };
+      } else if (act === "manual") {
+        this._vw = { view: "form", back: w, f: { name: "", brand: w.brand || "", model: w.model || "", variant: "", capacity_kwh: null, ac_kw: 11, phases: 3 }, fromCat: false };
+      } else if (act === "edit") {
+        const v = this._veh.vehicles.find((x) => x.id === d.id);
+        if (v) this._vw = { view: "form", back: { view: "list" }, f: { ...v }, fromCat: !!v.catalog_id };
+      } else if (act === "formback") this._vw = w.back || { view: "list" };
+      else if (act === "ph") { this._vehReadForm(); w.f.phases = Number(d.p); }
+      else if (act === "use") { this._veh = await this._vehWS("activate", { vehicle_id: d.id }); this._vehSum(); }
+      else if (act === "del") {
+        if (w.confirmDel !== d.id) { w.confirmDel = d.id; }
+        else { this._veh = await this._vehWS("delete", { vehicle_id: d.id }); w.confirmDel = null; this._vehSum(); if (!this._veh.vehicles.length) this._vw = { view: "brand" }; }
+      } else if (act === "save") { await this._vehSave(); return; }
+      else return;
+    } catch (e) {
+      (this._vw || {}).err = `Fehler: ${e && e.message ? e.message : "Aktion nicht möglich"}`;
+    }
+    this._vehRender();
+  }
+  _vehNum(s) { const v = parseFloat(String(s == null ? "" : s).replace(",", ".")); return isNaN(v) ? null : v; }
+  _vehReadForm() {
+    const r = this.shadowRoot, f = this._vw.f, g = (id) => r.getElementById(id);
+    if (!g("vf-kwh")) return;
+    f.name = g("vf-name").value.trim();
+    if (!this._vw.fromCat) { f.brand = g("vf-brand").value.trim(); f.model = g("vf-model").value.trim(); f.variant = g("vf-var").value.trim(); }
+    f.capacity_kwh = this._vehNum(g("vf-kwh").value);
+    f.ac_kw = this._vehNum(g("vf-ac").value);
+  }
+  async _vehSave() {
+    this._vehReadForm();
+    const w = this._vw, f = w.f;
+    const errs = [];
+    if (!f.brand || !f.model) errs.push("Marke und Modell angeben");
+    if (f.capacity_kwh == null || f.capacity_kwh < 5 || f.capacity_kwh > 250) errs.push("Akkugröße zwischen 5 und 250 kWh");
+    if (f.ac_kw == null || f.ac_kw < 1.4 || f.ac_kw > 22) errs.push("Ladeleistung zwischen 1,4 und 22 kW");
+    if (![1, 2, 3].includes(f.phases)) errs.push("Phasen wählen");
+    if (errs.length) { w.err = errs.join(", ") + "."; this._vehRender(); return; }
+    const vehicle = { name: f.name, brand: f.brand, model: f.model, variant: f.variant || "", capacity_kwh: f.capacity_kwh, ac_kw: f.ac_kw, phases: f.phases };
+    if (f.id) vehicle.id = f.id;
+    if (f.years) vehicle.years = f.years;
+    if (f.catalog_id) vehicle.catalog_id = f.catalog_id;
+    try {
+      this._veh = await this._vehWS("save", { vehicle });
+      this._vw = { view: "list", flash: "Gespeichert" };
+      this._vehSum();
+    } catch (e) {
+      w.err = `Nicht gespeichert: ${e && e.message ? e.message : "Fehler"}`;
+    }
+    this._vehRender();
+  }
+  _vehHead(title, back = true) {
+    return `<div class="vhd">${back ? `<button class="link" data-act="back">‹ Zurück</button>` : "<span></span>"}<b>${zesc(title)}</b><span></span></div>`;
+  }
+  _vehCrumbs() {
+    const w = this._vw, c = [`<span class="${w.view === "brand" ? "on" : ""}">Marke</span>`, `<span class="${w.view === "model" ? "on" : ""}">Modell</span>`, `<span class="${w.view === "variant" ? "on" : ""}">Ausführung</span>`];
+    return `<div class="crumbs">${c.join("<i>›</i>")}</div>`;
+  }
+  async _vehRender() {
+    const box = this.shadowRoot.getElementById("veh-box");
+    if (!box || box.hidden) return;
+    const w = this._vw || { view: "list" };
+    const token = (this._vehTok = (this._vehTok || 0) + 1);
+    const err = w.err ? `<div class="verr">${zesc(w.err)}</div>` : "";
+    w.err = null;
+    if (w.view === "list") {
+      const vs = (this._veh && this._veh.vehicles) || [];
+      box.innerHTML = `${this._vehHead("Ihre Fahrzeuge", false)}${err}
+        ${w.flash ? `<div class="vok">${zesc(w.flash)}</div>` : ""}
+        <div class="vlist">${vs.map((v) => {
+          const act = v.id === this._veh.active;
+          return `<div class="vrow ${act ? "act" : ""}">
+            <button class="vsel" data-act="use" data-id="${zesc(v.id)}" aria-pressed="${act}"><i></i><span><b>${zesc(v.name)}</b>
+              <small>${zesc([v.variant, this._vehYears(v.years)].filter(Boolean).join(" · "))}</small>
+              <small>${zesc(this._vehSpec(v.capacity_kwh, v.ac_kw, v.phases))}</small></span></button>
+            <div class="vbtns"><button class="btn" data-act="edit" data-id="${zesc(v.id)}">Ändern</button>
+              <button class="btn ${w.confirmDel === v.id ? "warn" : ""}" data-act="del" data-id="${zesc(v.id)}">${w.confirmDel === v.id ? "Wirklich entfernen?" : "Entfernen"}</button></div>
+          </div>`;
+        }).join("")}</div>
+        <button class="btn add" data-act="add">+ Fahrzeug hinzufügen</button>
+        <div class="vhint">Das gewählte Fahrzeug nutzt die Wallbox für das Laden bis zur Abfahrtszeit.</div>
+        ${this._vehFoot()}`;
+      w.flash = null;
+      return;
+    }
+    if (w.view === "form") { box.innerHTML = this._vehForm(err); return; }
+    const hasCars = !!(this._veh && this._veh.vehicles && this._veh.vehicles.length);
+    box.innerHTML = `${this._vehHead(w.view === "brand" ? "Fahrzeug wählen" : w.view === "model" ? w.brand : `${w.brand} ${w.model}`, w.view !== "brand" || hasCars)}${this._vehCrumbs()}${err}
+      ${w.view === "brand" ? `<input class="vq" id="veh-q" type="search" placeholder="Marke oder Modell suchen, z. B. ID.3" autocomplete="off" value="${zesc(w.q || "")}">` : ""}
+      <div id="veh-items"><div class="msg sm">Lade …</div></div>
+      <div class="vmiss">Ihr Fahrzeug ist nicht dabei? <button class="link" data-act="manual">Selbst eingeben</button></div>
+      ${this._vehFoot()}`;
+    if (w.view === "brand") { const q = this.shadowRoot.getElementById("veh-q"); if (q && w.q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+    await this._vehList(token);
+  }
+  async _vehList(token) {
+    const w = this._vw, el = this.shadowRoot.getElementById("veh-items");
+    if (!el) return;
+    if (token == null) token = (this._vehTok = (this._vehTok || 0) + 1);
+    let html = "";
+    try {
+      if (w.view === "brand") {
+        const cat = await this._vehCat();
+        this._vehMeta = cat;
+        const q = (w.q || "").trim().toLowerCase();
+        if (q.length >= 2) {
+          const brands = cat.brands.filter((b) => b.n.toLowerCase().includes(q));
+          const res = await this._vehWS("search", { query: q });
+          html = (brands.length ? `<div class="vsub">Marken</div><div class="vgrid">${brands.map((b) => this._vehBrandBtn(b)).join("")}</div>` : "")
+            + (res.results.length ? `<div class="vsub">Modelle</div><div class="vitems">${res.results.map((m) => `<button class="vit" data-act="model" data-b="${zesc(m.brand)}" data-m="${zesc(m.model)}"><b>${zesc(m.brand)} ${zesc(m.model)}</b><small>${zesc(this._vehYears(m.y))}</small><i>›</i></button>`).join("")}</div>` : "")
+            || `<div class="msg sm">Nichts gefunden. Anders schreiben oder selbst eingeben.</div>`;
+        } else {
+          const top = ZW_TOP_BRANDS.map((n) => cat.brands.find((b) => b.n === n)).filter(Boolean);
+          html = `<div class="vsub">Häufig</div><div class="vgrid">${top.map((b) => this._vehBrandBtn(b)).join("")}</div>
+            <div class="vsub">Alle Marken</div><div class="vgrid">${[...cat.brands].sort((x, y) => x.n.localeCompare(y.n, "de", { sensitivity: "base" })).map((b) => this._vehBrandBtn(b)).join("")}</div>`;
+        }
+      } else if (w.view === "model") {
+        const res = await this._vehCat({ brand: w.brand });
+        const ms = [...res.models].sort((a, b) => ((b.y ? b.y[1] : 0) - (a.y ? a.y[1] : 0)) || a.n.localeCompare(b.n, "de"));
+        html = `<div class="vitems">${ms.map((m) => `<button class="vit" data-act="model" data-b="${zesc(res.brand)}" data-m="${zesc(m.n)}"><b>${zesc(m.n)}</b><small>${zesc(this._vehYears(m.y))}</small><i>›</i></button>`).join("")}</div>`;
+      } else if (w.view === "variant") {
+        const res = await this._vehCat({ brand: w.brand, model: w.model });
+        html = `<div class="vitems">${res.variants.map((v) => `<button class="vit" data-act="variant" data-id="${zesc(v.id)}"><b>${zesc(v.n || "Standard")}</b>
+          <small>${zesc([this._vehYears(v.y), this._vehSpec(v.kwh, v.ac, v.ph)].filter(Boolean).join(" · "))}</small><i>›</i></button>`).join("")}</div>
+          <div class="vhint">Unterscheiden sich die Ausführungen nur im Akku, hilft die Angabe im Fahrzeugschein nicht. Die nutzbare Akkugröße steht im Datenblatt oder in der App des Herstellers.</div>`;
+      }
+    } catch (e) {
+      html = `<div class="msg sm">Der Fahrzeugkatalog konnte nicht geladen werden.</div>`;
+    }
+    if (token !== this._vehTok) return;  // inzwischen weitergeklickt
+    el.innerHTML = html;
+  }
+  _vehBrandBtn(b) { return `<button class="vb" data-act="brand" data-b="${zesc(b.n)}">${zesc(b.n)}</button>`; }
+  _vehForm(err) {
+    const w = this._vw, f = w.f, ro = w.fromCat;
+    const inp = (id, label, val, attrs = "") => `<label class="vf"><span>${label}</span><input id="${id}" value="${zesc(val == null ? "" : val)}" ${attrs}></label>`;
+    const num = (v) => (v == null ? "" : String(v).replace(".", ","));
+    const missing = ro && (f.ac_kw == null || !f.phases);
+    return `${this._vehHead(f.id ? "Fahrzeug ändern" : "Angaben prüfen")}${err}
+      <form class="vform" autocomplete="off">
+        ${inp("vf-name", "Name (z. B. Kennzeichen)", f.name, 'maxlength="40"')}
+        ${ro ? `<div class="vfix"><b>${zesc(f.brand)} ${zesc(f.model)}</b><small>${zesc([f.variant, this._vehYears(f.years)].filter(Boolean).join(" · "))}</small></div>`
+          : `<div class="vf2">${inp("vf-brand", "Marke", f.brand, 'maxlength="40" required')}${inp("vf-model", "Modell", f.model, 'maxlength="60" required')}</div>${inp("vf-var", "Ausführung (optional)", f.variant, 'maxlength="80"')}`}
+        <div class="vf2">
+          ${inp("vf-kwh", "Akku nutzbar (kWh)", num(f.capacity_kwh), 'inputmode="decimal" required')}
+          ${inp("vf-ac", "Laden an der Wallbox (kW)", num(f.ac_kw), 'inputmode="decimal" required')}
+        </div>
+        <div class="ctl"><div><b>Phasen beim Laden</b><small>Wie viele Phasen das Auto beim AC-Laden nutzt</small></div>
+          <div class="seg small">${[1, 2, 3].map((p) => `<button type="button" data-act="ph" data-p="${p}" class="${f.phases === p ? "act" : ""}">${p}</button>`).join("")}</div></div>
+        ${missing ? `<div class="vwarn">Für diese Ausführung fehlen Angaben zum Laden. Bitte prüfen, z. B. im Datenblatt. Viele aktuelle Autos laden mit 11 kW dreiphasig.</div>` : ""}
+        <div class="vhint">Die Werte stammen aus einer offenen Datenbank und können abweichen. Sie lassen sich hier jederzeit ändern.</div>
+        <div class="cbtns end"><button type="button" class="btn" data-act="formback">Abbrechen</button><button type="submit" class="btn yes">Speichern</button></div>
+      </form>`;
+  }
+  _vehFoot() {
+    const m = this._vehMeta;
+    const src = (m && m.sources && m.sources.length ? m.sources : [{ name: "OpenEV Data", url: "https://github.com/open-ev-data/open-ev-data-dataset", license: "CDLA-Permissive-2.0" }, { name: "Open EV Data", url: "https://github.com/KilowattApp/open-ev-data", license: "MIT" }])
+      .filter((s) => s.code !== "z")
+      .map((s) => `<a href="${zesc(s.url)}" target="_blank" rel="noopener">${zesc(s.name)}</a> (${zesc(s.license)})`);
+    return `<div class="vfoot">Fahrzeugdaten: ${src.join(", ")}${m && m.version ? ` · Stand ${zesc(m.version)}` : ""}</div>`;
   }
 
   /* ---------- Statistiken ---------- */
@@ -675,7 +904,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .msg{padding:90px 0;text-align:center;color:var(--zs);font-size:13px}
     .know{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:9px;font-size:13px;line-height:1.45;color:var(--zi)}
     .know li::marker{color:${ZK.ev2}}
-    .tgls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--zl)}
+    .tgls{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--zl)}
     .settgl{display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;font:inherit;font-size:13.5px;font-weight:500;color:var(--zh);background:var(--zf);border:0;border-radius:12px;cursor:pointer}
     .settgl em{flex:1;text-align:right;font-style:normal;font-size:12px;color:var(--zs);font-weight:400}
     .settgl i{font-style:normal;transition:transform .2s}.settgl[aria-expanded="true"] i{transform:rotate(180deg)}
@@ -695,6 +924,38 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .link{font:inherit;font-size:12px;color:var(--zh);background:none;border:0;cursor:pointer;text-decoration:underline;padding:0}
     .link[hidden]{display:none}
     .dets{display:flex;flex-direction:column;gap:10px;margin-top:10px}.dets[hidden]{display:none}
+    .settgl[hidden]{display:none}
+    .vehs{display:flex;flex-direction:column;gap:10px;margin-top:10px}.vehs[hidden]{display:none}
+    .vhd{display:grid;grid-template-columns:90px 1fr 90px;align-items:center;gap:8px}.vhd b{text-align:center;font-size:14px;color:var(--zh)}.vhd .link{justify-self:start}
+    .crumbs{display:flex;justify-content:center;gap:6px;font-size:11.5px;color:var(--zd)}.crumbs .on{color:var(--zh);font-weight:600}.crumbs i{font-style:normal}
+    .vq{width:100%;font:inherit;font-size:14px;padding:10px 12px;border-radius:12px;border:1px solid var(--zl);background:var(--zc);color:var(--zi)}
+    .vsub{font-size:11.5px;color:var(--zs);text-transform:uppercase;letter-spacing:.04em;margin:6px 2px 0}
+    .vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
+    .vb{font:inherit;font-size:13px;padding:10px 8px;border-radius:10px;border:0;background:var(--zf);color:var(--zi);cursor:pointer;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .vb:hover,.vit:hover{outline:2px solid var(--zl)}
+    .vitems{display:flex;flex-direction:column;gap:6px}
+    .vit{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;column-gap:10px;text-align:left;font:inherit;padding:10px 12px;border-radius:12px;border:0;background:var(--zf);color:var(--zi);cursor:pointer}
+    .vit b{font-size:13.5px;font-weight:500}.vit small{grid-column:1;font-size:12px;color:var(--zs)}.vit i{grid-column:2;grid-row:1 / 3;align-self:center;font-style:normal;color:var(--zd);font-size:18px}
+    .vmiss{font-size:12.5px;color:var(--zs);padding:2px 4px}
+    .vlist{display:flex;flex-direction:column;gap:8px}
+    .vrow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;background:var(--zf);border-radius:12px;border:2px solid transparent}
+    .vrow.act{border-color:${ZK.ev}}
+    .vsel{display:flex;gap:12px;align-items:center;font:inherit;text-align:left;background:none;border:0;color:var(--zi);cursor:pointer;padding:0;flex:1;min-width:180px}
+    .vsel i{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid var(--zd)}.vrow.act .vsel i{border-color:${ZK.ev2};background:radial-gradient(circle,${ZK.ev2} 45%,transparent 50%)}
+    .vsel span{display:flex;flex-direction:column;gap:2px}.vsel b{font-size:14px;font-weight:600}.vsel small{font-size:12px;color:var(--zs)}
+    .vbtns{display:flex;gap:6px}.btn.warn{border-color:${ZK.err};color:${ZK.err}}.btn.add{align-self:flex-start}
+    .btn.yes{background:${ZK.petrol};border-color:${ZK.petrol};color:#fff;font-weight:600}
+    .vform{display:flex;flex-direction:column;gap:10px}
+    .vf{display:flex;flex-direction:column;gap:4px;min-width:0}.vf span{font-size:11.5px;color:var(--zs)}
+    .vf input{font:inherit;font-size:14px;padding:9px 11px;border-radius:10px;border:1px solid var(--zl);background:var(--zc);color:var(--zi);width:100%}
+    .vf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .vfix{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--zf);border-radius:12px}.vfix b{font-size:14px}.vfix small{font-size:12px;color:var(--zs)}
+    .vhint,.vfoot{font-size:11.5px;color:var(--zs);line-height:1.4;padding:0 4px}.vfoot a{color:var(--zs)}
+    .vwarn,.verr{padding:9px 12px;border-radius:12px;font-size:12.5px;background:var(--zwb);border:1px solid var(--zwbd);color:var(--zwi)}
+    .verr{border-color:${ZK.err}}
+    .vok{font-size:12.5px;color:${ZK.ok};padding:0 4px}
+    .cbtns.end{justify-content:flex-end}
+    .msg.sm{padding:24px 0}
     .dsec{border:1px solid var(--zl);border-radius:12px;padding:12px 14px}
     .dh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px}
     .dh b{font-size:13.5px;font-weight:600;color:var(--zh)}.dh small{font-size:11.5px;color:var(--zs)}
@@ -717,6 +978,9 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       .ctl{flex-wrap:wrap}.seg.small{flex-wrap:nowrap}.rng input{width:110px}
       .facts.f4{grid-template-columns:1fr 1fr}
       .settgl em{display:none}
+      .tgls{gap:6px}.settgl{padding:10px 8px;gap:6px;font-size:13px}
+      .vf2{grid-template-columns:1fr}.vgrid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
+      .vhd{grid-template-columns:70px 1fr 70px}
     }
     `;
   }

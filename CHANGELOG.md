@@ -14,6 +14,10 @@
 - Wallbox-Karte `custom:zeo-sonnen-wallbox-card` (Vorschau, 0.7.0-dev2): Status, Leistung je Phase, Ladevorgang, geladene Energie, Gerät, Ladeleistung, Lademodus und Einstellungen. Liest die Wallbox-Entitäten von zeo_sonnen und steuert über die eigenen Aktionen. Noch nicht im Panel eingebunden
 - Regelkern `charge_logic.py` für die Lademodi Aus/Eco/Eco+/Power/Manuell mit Tests; Testaufbau als pyscript unter `tools/pyscript/`
 
+- **Fahrzeugauswahl** in der Wallbox-Karte (Knopf „Fahrzeug“, 0.7.0-dev4): Marke → Modell → Ausführung mit Suche, Werte prüfen und ändern, freie Eingabe für fehlende Fahrzeuge. Mehrere Fahrzeuge je Haushalt, eines aktiv. Gespeichert in `.storage/zeo_sonnen.vehicles`, ohne Admin-Rechte bedienbar
+- Mitgelieferter Fahrzeugkatalog `vehicles.json` (OpenEV Data, CDLA-Permissive-2.0, und Open EV Data/KilowattApp, MIT) und Build-Skript `tools/build_vehicle_db.py`
+- Websocket-Befehle `zeo_sonnen/vehicles/catalog`, `search`, `list`, `save`, `delete`, `activate`
+
 ### Geändert
 - Neue Abhängigkeit `ocpp>=2.1.0`
 

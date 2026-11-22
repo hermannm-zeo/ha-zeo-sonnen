@@ -36,6 +36,7 @@ from .const import (
 )
 from .coordinator import SonnenConfigEntry
 from .schema import vol
+from .vehicles import async_register_websocket as async_register_vehicle_ws
 from .wallbox import UNIQUE_INFIX, wallbox_id, wallbox_max_current
 from .wallbox import server as wallbox_server
 
@@ -98,6 +99,7 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
     version = await hass.async_add_executor_job(_version)
     frontend.add_extra_js_url(hass, card_url(version))
     websocket_api.async_register_command(hass, ws_info)
+    async_register_vehicle_ws(hass)
     hass.data[f"{DOMAIN}_version"] = version
 
 

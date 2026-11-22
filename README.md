@@ -100,6 +100,19 @@ Die Karte fragt über den Websocket-Befehl `zeo_sonnen/info` ab, welche Entität
 - Ein sonnen-Logo ist nicht enthalten. Die Illustration im Classic-Portal ist selbst gezeichnet, die Hausbilder der Modern-Ansicht sind KI-generiert (Gemini). Icon und Logo der Integration sind das ZEO-SOLAR-Logo.
 - `remaining_energy` kommt unverändert aus der API (`RemainingCapacity_Wh`). Während des Vollladezyklus nach einem Modultausch kann der Wert unplausibel sein. Das Portal rechnet die gespeicherte Energie deshalb aus Ladestand × Volllade-Kapazität.
 
+## Fahrzeugkatalog
+
+Die Wallbox-Karte bietet unter **Fahrzeug** eine Auswahl Marke → Modell → Ausführung (rund 1.200 Ausführungen, auch ältere Fahrzeuge) oder die freie Eingabe. Gespeichert werden nutzbare Akkugröße, AC-Ladeleistung und Phasen, je Haushalt bis zu 10 Fahrzeuge, eines davon ist aktiv. Grundlage für das Zielladen.
+
+Der Katalog `custom_components/zeo_sonnen/vehicles.json` wird mit `python3 tools/build_vehicle_db.py` aus zwei offenen Datensätzen gebaut und mit der Integration ausgeliefert (keine Online-Abfrage):
+
+- **OpenEV Data**, https://github.com/open-ev-data/open-ev-data-dataset, Lizenz [CDLA-Permissive-2.0](https://cdla.dev/permissive-2-0/)
+- **Open EV Data**, https://github.com/KilowattApp/open-ev-data, MIT-Lizenz mit Namensnennung
+
+Das Skript vereinheitlicht Marken, trennt Modell und Ausführung, verwirft unplausible Werte (AC über 22 kW, 7,4 kW dreiphasig) und führt gleiche Ausführungen zusammen. Eigene Ergänzungen und Korrekturen kommen nach `tools/vehicles_extra.json` (nur mit Quelle aus dem Herstellerdatenblatt). Die Daten sind ohne Gewähr, der Kunde kann jeden Wert in der Karte ändern.
+
+Websocket-Befehle: `zeo_sonnen/vehicles/catalog` (Marken, Modelle, Ausführungen), `…/search`, `…/list`, `…/save`, `…/delete`, `…/activate`.
+
 ## Entwicklung
 
 ```bash
