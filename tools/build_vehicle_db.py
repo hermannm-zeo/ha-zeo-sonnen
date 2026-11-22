@@ -88,7 +88,7 @@ def model_key(name: str) -> str:
 
 
 def clean(text: str) -> str:
-    t = re.sub(r"\s+", " ", (text or "").replace(",", " ")).strip(" -")
+    t = re.sub(r"\s+", " ", text or "").strip(" -,")
     t = re.sub(r"(\d)\s*kwh\b", r"\1 kWh", t, flags=re.I)
     t = re.sub(r"(\d)\s*kw-ac\b", r"\1 kW AC", t, flags=re.I)
     return t
@@ -166,8 +166,7 @@ def from_kilowatt(data: dict, known: dict[str, dict[str, str]]) -> list[dict]:
         if (
             not raw
             or (raw == raw.lower() and not JUNK_OK.match(raw))
-            or (re.match(r"^[\d.,]+\s*(kwh)?\b", raw, re.I)
-            and not JUNK_OK.match(raw))
+            or (re.match(r"^[\d.,]+\s*(kwh)?\b", raw, re.I) and not JUNK_OK.match(raw))
         ):
             continue  # model name lost in the source ('50kwh', 'long range', '39.', ...)
         recs.append((brand_name(v["brand"]), clean(raw), clean(v.get("variant") or ""), v))

@@ -102,7 +102,7 @@ Die Karte fragt über den Websocket-Befehl `zeo_sonnen/info` ab, welche Entität
 
 ## Fahrzeugkatalog
 
-Die Wallbox-Karte bietet unter **Fahrzeug** eine Auswahl Marke → Modell → Ausführung (rund 1.200 Ausführungen, auch ältere Fahrzeuge) oder die freie Eingabe. Gespeichert werden nutzbare Akkugröße, AC-Ladeleistung und Phasen, je Haushalt bis zu 10 Fahrzeuge, eines davon ist aktiv. Grundlage für das Zielladen.
+Die Wallbox-Karte bietet unter **Fahrzeug** eine Auswahl Marke → Modell → Ausführung (rund 1.250 Ausführungen von 2010 bis 2026) oder die freie Eingabe. Gespeichert werden nutzbare Akkugröße, AC-Ladeleistung und Phasen, je Haushalt bis zu 10 Fahrzeuge, eines davon ist aktiv. Grundlage für das Zielladen.
 
 Der Katalog `custom_components/zeo_sonnen/vehicles.json` wird mit `python3 tools/build_vehicle_db.py` aus zwei offenen Datensätzen gebaut und mit der Integration ausgeliefert (keine Online-Abfrage):
 
