@@ -21,7 +21,7 @@
  *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev7";
+const ZW_VERSION = "0.7.0-dev8";
 const ZW_HIDDEN_MODES = ["Aus"];  // braucht niemand: zum Anhalten gibt es Pausieren in den Einstellungen
 
 const ZK = {
@@ -177,12 +177,18 @@ class ZeoSonnenWallboxCard extends HTMLElement {
             <div class="seg" id="modes"></div>
             <div class="why"><i id="why-dot"></i><span id="why">–</span><em class="dry" id="why-dry" hidden>Trockenlauf</em></div>
             <div class="zbox" id="zbox" hidden>
+              <div class="zsum" id="zsum" hidden>
+                <div class="zst"><b id="zs-t">–</b><small id="zs-s">–</small></div>
+                <button class="btn" id="zs-edit">Ändern</button>
+              </div>
+              <div class="zform" id="zform">
               <div class="zgrid">
                 <label class="vf"><span>Ladestand jetzt (%)</span><input type="number" id="z-now" min="0" max="100" step="1" inputmode="numeric"></label>
                 <label class="vf"><span>Ziel (%)</span><input type="number" id="z-goal" min="10" max="100" step="5" inputmode="numeric"></label>
                 <label class="vf zdep"><span>Abfahrt</span><input type="datetime-local" id="z-dep"></label>
               </div>
-              <div class="zfoot"><small id="z-info">–</small><button class="btn yes" id="z-ok">Übernehmen</button></div>
+              <div class="zfoot"><small id="z-info">–</small><div class="zbtns"><button class="link" id="z-cancel" hidden>Abbrechen</button><button class="btn yes" id="z-ok">Übernehmen</button></div></div>
+              </div>
             </div>
           </div>
           <div class="now">
@@ -524,21 +530,50 @@ class ZeoSonnenWallboxCard extends HTMLElement {
 
   /* ---------- Modus Ziel: Ladestand jetzt, Ziel und Abfahrt ---------- */
   _zLocal(d) { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+  _zWhen(d) {
+    const p = (n) => String(n).padStart(2, "0"), t = `${p(d.getHours())}:${p(d.getMinutes())} Uhr`;
+    const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diff = Math.round((day(d) - day(new Date())) / 86400000);
+    if (diff === 0) return `heute, ${t}`;
+    if (diff === 1) return `morgen, ${t}`;
+    return `${["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()]}. ${p(d.getDate())}.${p(d.getMonth() + 1)}., ${t}`;
+  }
   _updateZiel(s, m) {
     const r = this.shadowRoot, box = r.getElementById("zbox");
     const goal = this._st("zgoal"), dep = this._st("zdep"), now = this._st("zsoc");
     box.hidden = !(s.state === "Ziel" && goal && dep && now);
-    if (box.hidden) { this._zDirty = false; return; }
+    if (box.hidden) { this._zDirty = false; this._zEdit = false; return; }
     if (!this._zBound) {
       this._zBound = true;
       ["z-now", "z-goal", "z-dep"].forEach((id) => r.getElementById(id).addEventListener("input", () => { this._zDirty = true; }));
       r.getElementById("z-ok").addEventListener("click", () => this._zApply());
+      r.getElementById("zs-edit").addEventListener("click", () => { this._zEdit = true; this._zDirty = false; this._updateMode(); });
+      r.getElementById("z-cancel").addEventListener("click", () => { this._zEdit = false; this._zDirty = false; this._updateMode(); });
     }
     const a = (m && m.attributes) || {};
+    const depD = dep.attributes.timestamp ? new Date(dep.attributes.timestamp * 1000) : null;
+    const future = depD && depD.getTime() > Date.now();
+    const just = this._zJust && Date.now() - this._zJust < 30000;  // gerade übernommen, Lademanager rechnet noch
+    const planned = future && (a.target_state === "ok" || just);
+    const veh = this._vehActive();
+    const vn = veh ? (veh.name || [veh.brand, veh.model].filter(Boolean).join(" ")) : "";
+    const form = this._zEdit || !planned;
+    r.getElementById("zsum").hidden = form;
+    r.getElementById("zform").hidden = !form;
+    r.getElementById("z-cancel").hidden = !planned;
+    if (!form) {
+      const g = isNaN(parseFloat(goal.state)) ? 80 : Math.round(parseFloat(goal.state));
+      r.getElementById("zs-t").textContent = `Ziel ${g} % bis ${this._zWhen(depD)}`;
+      let sub;
+      if (m && m.state === "target_reached") sub = "Ziel erreicht, Ladung pausiert";
+      else if (a.target_state === "ok") sub = `Jetzt ca. ${zf(a.target_soc_estimate, 0)} % · noch ${zf(a.target_energy_kwh, 1)} kWh`;
+      else sub = "Wird geplant …";
+      r.getElementById("zs-s").textContent = vn ? `${sub} · ${vn}` : sub;
+      return;
+    }
     if (!this._zDirty) {
       r.getElementById("z-goal").value = isNaN(parseFloat(goal.state)) ? 80 : Math.round(parseFloat(goal.state));
-      const ts = dep.attributes.timestamp ? new Date(dep.attributes.timestamp * 1000) : null;
-      let d = ts;
+      let d = depD;
       if (!d || d.getTime() <= Date.now()) {  // Vorschlag: morgen 7:00
         d = new Date(); d.setDate(d.getDate() + (d.getHours() >= 7 ? 1 : 0)); d.setHours(7, 0, 0, 0);
       }
@@ -547,11 +582,9 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       zn.value = "";
       zn.placeholder = a.target_soc_estimate != null ? `ca. ${zf(a.target_soc_estimate, 0)}` : "z. B. 30";
     }
-    const veh = this._vehActive();
-    const vn = veh ? (veh.name || [veh.brand, veh.model].filter(Boolean).join(" ")) : "";
     let info;
     if (this._vehOk && !veh) info = "Kein Fahrzeug gewählt. Bitte unter „Fahrzeug“ auswählen.";
-    else if (a.target_state === "ok") info = `Noch ca. ${zf(a.target_energy_kwh, 1)} kWh bis ${String(a.target_departure).slice(11, 16)} Uhr${vn ? ` · ${vn}` : ""}`;
+    else if (planned) info = `Leer lassen, wenn sich der Ladestand nicht geändert hat${vn ? ` · ${vn}` : ""}`;
     else info = `Ladestand ablesen (Auto oder App) und eintragen${vn ? ` · ${vn}` : ""}`;
     r.getElementById("z-info").textContent = this._zFlash || info;
   }
@@ -576,7 +609,10 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       });
       if (nowN != null) await this._hass.callService("input_number", "set_value", { entity_id: this._e.zsoc, value: Math.round(nowN) });
       this._zDirty = false;
-      fail("Übernommen. Die Wallbox plant die Ladung neu.");
+      this._zEdit = false;
+      this._zJust = Date.now();
+      this._zFlash = null;
+      this._updateMode();
     } catch (e) {
       fail(`Nicht übernommen: ${e.message || e}`);
     } finally {
@@ -1042,6 +1078,10 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .zbox{display:flex;flex-direction:column;gap:10px;padding:12px;background:var(--zf);border-radius:12px}.zbox[hidden]{display:none}
     .zgrid{display:grid;grid-template-columns:1fr 1fr 2fr;gap:10px}
     .zfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.zfoot small{font-size:12.5px;color:var(--zs)}
+    .zform{display:flex;flex-direction:column;gap:10px}.zform[hidden],.zsum[hidden]{display:none}
+    .zbtns{display:flex;align-items:center;gap:12px;margin-left:auto}
+    .zsum{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .zst{display:flex;flex-direction:column;gap:2px;min-width:0}.zst b{font-size:14px;font-weight:600}.zst small{font-size:12.5px;color:var(--zs)}
     .vfix{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--zf);border-radius:12px}.vfix b{font-size:14px}.vfix small{font-size:12px;color:var(--zs)}
     .vhint,.vfoot{font-size:11.5px;color:var(--zs);line-height:1.4;padding:0 4px}.vfoot a{color:var(--zs)}
     .vwarn,.verr{padding:9px 12px;border-radius:12px;font-size:12.5px;background:var(--zwb);border:1px solid var(--zwbd);color:var(--zwi)}
