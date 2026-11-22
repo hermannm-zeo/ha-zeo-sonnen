@@ -11,6 +11,7 @@ from custom_components.zeo_sonnen.charge_logic import (
     Mode,
     Reason,
     Settings,
+    Target,
     amps_for,
     available_power,
 )
@@ -35,6 +36,7 @@ class Sim:
         ev: float = 0.0,
         tx: bool = True,
         dt: float = 10.0,
+        target: Target | None = None,
     ) -> Decision:
         end = self.t + seconds
         d = None
@@ -50,6 +52,7 @@ class Sim:
                     ev_w=ev,
                     in_transaction=tx,
                 ),
+                target,
             )
             self.t += dt
         return d
@@ -184,3 +187,86 @@ def test_eco_plus_charges_minimum_from_grid() -> None:
     assert (d.amps, d.phases, d.reason) == (6, 1, Reason.STARTING)
     d = sim.run(Mode.ECO_PLUS, 400, feed_in=-1000, ev=1380)
     assert (d.amps, d.phases, d.reason) == (6, 1, Reason.MINIMUM)  # never pauses
+
+
+# ---------- Ziel ----------
+
+T11 = 11040.0  # 16 A, 3 phases
+
+
+def test_target_need_w() -> None:
+    assert Target(10000, 3600, T11).need_w == 10000
+    assert Target(0, 3600, T11).need_w == 0
+    assert Target(-5, 0, T11).need_w == 0
+    assert Target(100, 0, T11).need_w == float("inf")
+
+
+def test_target_without_input_behaves_like_eco() -> None:
+    sim = Sim()
+    d = sim.run(Mode.TARGET, 600, feed_in=0)
+    assert (d.amps, d.reason) == (0, Reason.WAITING)
+
+
+def test_target_tops_up_from_grid_single_phase() -> None:
+    sim = Sim()
+    # 20 kWh in 8 h = 2.5 kW needed, no sun
+    d = sim.run(Mode.TARGET, 600, target=Target(20000, 8 * 3600, T11))
+    assert (d.amps, d.phases, d.reason) == (10, 1, Reason.TARGET)
+
+
+def test_target_uses_surplus_when_larger_than_need() -> None:
+    sim = Sim()
+    d = sim.run(Mode.TARGET, 600, feed_in=3000, target=Target(5000, 8 * 3600, T11))
+    assert (d.phases, d.reason) == (1, Reason.SOLAR)
+    assert d.amps == 13
+
+
+def test_target_small_need_waits_for_the_sun() -> None:
+    sim = Sim()
+    # 0.5 kW needed: below the 1.5 kW start threshold, nothing happens yet
+    d = sim.run(Mode.TARGET, 900, target=Target(4000, 8 * 3600, T11))
+    assert (d.amps, d.reason) == (0, Reason.WAITING)
+
+
+def test_target_switches_to_three_phases_for_large_need() -> None:
+    sim = Sim()
+    d = sim.run(Mode.TARGET, 1200, target=Target(30000, 4 * 3600, T11))  # 7.5 kW
+    assert (d.phases, d.reason) == (3, Reason.TARGET)
+    assert d.amps == 10
+
+
+def test_target_single_phase_car_stays_single_phase() -> None:
+    sim = Sim()
+    d = sim.run(Mode.TARGET, 1200, target=Target(30000, 4 * 3600, 3680.0, max_phases=1))
+    assert d.phases == 1
+    assert d.reason == Reason.TOO_TIGHT
+    assert d.amps == 16
+
+
+def test_target_capped_by_car() -> None:
+    sim = Sim()
+    # car takes 7.4 kW on one phase only: 16 A single phase at most here
+    d = sim.run(Mode.TARGET, 600, feed_in=9000, target=Target(5000, 8 * 3600, 3680.0, max_phases=1))
+    assert (d.amps, d.phases) == (16, 1)
+
+
+def test_target_too_tight_goes_full_power_at_once() -> None:
+    sim = Sim()
+    d = sim.run(Mode.TARGET, 10, target=Target(40000, 3600, T11))
+    assert (d.amps, d.phases, d.reason) == (16, 3, Reason.TOO_TIGHT)
+    d = sim.run(Mode.TARGET, 10, target=Target(40000, 0, T11))
+    assert d.reason == Reason.TOO_TIGHT
+
+
+def test_target_reached_pauses() -> None:
+    sim = Sim()
+    sim.run(Mode.TARGET, 600, target=Target(20000, 8 * 3600, T11))
+    d = sim.run(Mode.TARGET, 10, target=Target(0, 8 * 3600, T11))
+    assert (d.amps, d.reason) == (0, Reason.TARGET_REACHED)
+    assert sim.logic.phases == 0
+
+
+def test_target_idle_without_car() -> None:
+    sim = Sim()
+    d = sim.run(Mode.TARGET, 10, tx=False, target=Target(20000, 3600, T11))
+    assert (d.amps, d.reason) == (0, Reason.IDLE)

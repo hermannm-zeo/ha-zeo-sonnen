@@ -11,7 +11,9 @@
  *   max_power:  Höchstleistung in kW für die Anzeige (Standard: 11)
  *   rfid:       true = Hinweis „Laden mit Karte starten“ (Standard: true)
  *   max_current: höchster einstellbarer Ladestrom in A (Standard: aus der Integration, sonst 16)
- *   mode:       optional input_select/select für den Lademodus (Aus, Eco, Eco+, Power, Manuell)
+ *   mode:       optional input_select/select für den Lademodus (Eco, Eco+, Power, Ziel, Manuell; „Aus“ wird nicht angezeigt)
+ *   target:     Helfer für den Modus Ziel { soc_now, soc, departure }
+ *               (Standard: input_number.wallbox_ladestand_auto, input_number.wallbox_ziel_ladestand, input_datetime.wallbox_abfahrt)
  *   manager:    Status-Sensor des Lademanagers (Standard: sensor.wallbox_lademanager)
  *   dry_run:    input_boolean Trockenlauf (Standard: input_boolean.wallbox_trockenlauf)
  *   theme:      auto | light | dark
@@ -19,7 +21,8 @@
  *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev6";
+const ZW_VERSION = "0.7.0-dev7";
+const ZW_HIDDEN_MODES = ["Aus"];  // braucht niemand: zum Anhalten gibt es Pausieren in den Einstellungen
 
 const ZK = {
   ev: "#9BD62A", ev2: "#6FAE12", petrol: "#0E3A43",
@@ -72,6 +75,9 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     return {
       ...(w.entities || {}),
       manager: this._cfg.manager || "sensor.wallbox_lademanager", dry: this._cfg.dry_run || "input_boolean.wallbox_trockenlauf",
+      zsoc: (this._cfg.target || {}).soc_now || "input_number.wallbox_ladestand_auto",
+      zgoal: (this._cfg.target || {}).soc || "input_number.wallbox_ziel_ladestand",
+      zdep: (this._cfg.target || {}).departure || "input_datetime.wallbox_abfahrt",
       ...(this._cfg.entities || {}),
     };
   }
@@ -170,6 +176,14 @@ class ZeoSonnenWallboxCard extends HTMLElement {
           <div class="modebar" id="modebar" hidden>
             <div class="seg" id="modes"></div>
             <div class="why"><i id="why-dot"></i><span id="why">–</span><em class="dry" id="why-dry" hidden>Trockenlauf</em></div>
+            <div class="zbox" id="zbox" hidden>
+              <div class="zgrid">
+                <label class="vf"><span>Ladestand jetzt (%)</span><input type="number" id="z-now" min="0" max="100" step="1" inputmode="numeric"></label>
+                <label class="vf"><span>Ziel (%)</span><input type="number" id="z-goal" min="10" max="100" step="5" inputmode="numeric"></label>
+                <label class="vf zdep"><span>Abfahrt</span><input type="datetime-local" id="z-dep"></label>
+              </div>
+              <div class="zfoot"><small id="z-info">–</small><button class="btn yes" id="z-ok">Übernehmen</button></div>
+            </div>
           </div>
           <div class="now">
             <div id="ring"></div>
@@ -485,7 +499,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     const r = this.shadowRoot, s = this._modeState();
     r.getElementById("modebar").hidden = !s;
     if (!s) return;
-    const opts = s.attributes.options || [];
+    const opts = (s.attributes.options || []).filter((o) => !ZW_HIDDEN_MODES.includes(o));
     const box = r.getElementById("modes");
     const key = opts.join("|") + "#" + s.state;
     if (box.dataset.k !== key) {
@@ -498,10 +512,75 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     }
     const m = this._st("manager"), dry = this._st("dry");
     const ok = m && m.state !== "unavailable" && m.state !== "unknown";
-    const col = !ok ? ZK.err : { solar: ZK.ev, power: ZK.ev, minimum: ZK.ev2, waiting: ZK.warn, battery_priority: ZK.warn, starting: ZK.warn, settling: ZK.warn }[m.state] || ZK.grey;
+    const col = !ok ? ZK.err : {
+      solar: ZK.ev, power: ZK.ev, minimum: ZK.ev2, target: ZK.ev2, target_reached: ZK.ok,
+      waiting: ZK.warn, battery_priority: ZK.warn, starting: ZK.warn, settling: ZK.warn, too_tight: ZK.warn,
+    }[m.state] || ZK.grey;
     r.getElementById("why-dot").style.background = col;
     r.getElementById("why").textContent = ok ? m.attributes.text || m.state : "Lademanager läuft nicht";
     r.getElementById("why-dry").hidden = !(dry && dry.state === "on" && s.state !== "Manuell");
+    this._updateZiel(s, ok ? m : null);
+  }
+
+  /* ---------- Modus Ziel: Ladestand jetzt, Ziel und Abfahrt ---------- */
+  _zLocal(d) { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+  _updateZiel(s, m) {
+    const r = this.shadowRoot, box = r.getElementById("zbox");
+    const goal = this._st("zgoal"), dep = this._st("zdep"), now = this._st("zsoc");
+    box.hidden = !(s.state === "Ziel" && goal && dep && now);
+    if (box.hidden) { this._zDirty = false; return; }
+    if (!this._zBound) {
+      this._zBound = true;
+      ["z-now", "z-goal", "z-dep"].forEach((id) => r.getElementById(id).addEventListener("input", () => { this._zDirty = true; }));
+      r.getElementById("z-ok").addEventListener("click", () => this._zApply());
+    }
+    const a = (m && m.attributes) || {};
+    if (!this._zDirty) {
+      r.getElementById("z-goal").value = isNaN(parseFloat(goal.state)) ? 80 : Math.round(parseFloat(goal.state));
+      const ts = dep.attributes.timestamp ? new Date(dep.attributes.timestamp * 1000) : null;
+      let d = ts;
+      if (!d || d.getTime() <= Date.now()) {  // Vorschlag: morgen 7:00
+        d = new Date(); d.setDate(d.getDate() + (d.getHours() >= 7 ? 1 : 0)); d.setHours(7, 0, 0, 0);
+      }
+      r.getElementById("z-dep").value = this._zLocal(d);
+      const zn = r.getElementById("z-now");
+      zn.value = "";
+      zn.placeholder = a.target_soc_estimate != null ? `ca. ${zf(a.target_soc_estimate, 0)}` : "z. B. 30";
+    }
+    const veh = this._vehActive();
+    let info;
+    if (this._vehOk && !veh) info = "Kein Fahrzeug gewählt. Bitte unter „Fahrzeug“ auswählen.";
+    else if (a.target_state === "ok") info = `Noch ca. ${zf(a.target_energy_kwh, 1)} kWh bis ${String(a.target_departure).slice(11, 16)} Uhr${veh ? ` · ${veh.name}` : ""}`;
+    else info = `Ladestand ablesen (Auto oder App) und eintragen${veh ? ` · ${veh.name}` : ""}`;
+    r.getElementById("z-info").textContent = this._zFlash || info;
+  }
+  async _zApply() {
+    const r = this.shadowRoot, btn = r.getElementById("z-ok");
+    const nowV = r.getElementById("z-now").value.trim(), goalV = parseFloat(r.getElementById("z-goal").value), depV = r.getElementById("z-dep").value;
+    const dep = depV ? new Date(depV) : null;
+    const m = this._st("manager"), known = m && m.attributes && m.attributes.target_soc_estimate != null;
+    const fail = (t) => { this._zFlash = t; this._updateMode(); clearTimeout(this._zT); this._zT = setTimeout(() => { this._zFlash = null; this._updateMode(); }, 4000); };
+    if (!dep || isNaN(dep) || dep.getTime() <= Date.now() + 15 * 60000) return fail("Abfahrt bitte mindestens 15 Minuten in der Zukunft wählen.");
+    if (isNaN(goalV) || goalV < 10 || goalV > 100) return fail("Ziel bitte zwischen 10 und 100 % eingeben.");
+    const nowN = nowV === "" ? null : parseFloat(nowV.replace(",", "."));
+    if (nowN == null && !known) return fail("Bitte den aktuellen Ladestand des Autos eingeben.");
+    if (nowN != null && (isNaN(nowN) || nowN < 0 || nowN > 100)) return fail("Ladestand bitte zwischen 0 und 100 % eingeben.");
+    if (nowN != null && nowN >= goalV) return fail("Das Auto hat das Ziel schon erreicht.");
+    btn.disabled = true;
+    try {
+      const p = (n) => String(n).padStart(2, "0");
+      await this._hass.callService("input_number", "set_value", { entity_id: this._e.zgoal, value: goalV });
+      await this._hass.callService("input_datetime", "set_datetime", {
+        entity_id: this._e.zdep, datetime: `${dep.getFullYear()}-${p(dep.getMonth() + 1)}-${p(dep.getDate())} ${p(dep.getHours())}:${p(dep.getMinutes())}:00`,
+      });
+      if (nowN != null) await this._hass.callService("input_number", "set_value", { entity_id: this._e.zsoc, value: Math.round(nowN) });
+      this._zDirty = false;
+      fail("Übernommen. Die Wallbox plant die Ladung neu.");
+    } catch (e) {
+      fail(`Nicht übernommen: ${e.message || e}`);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   _ring(kw, max, on) {
@@ -959,6 +1038,9 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .vf{display:flex;flex-direction:column;gap:4px;min-width:0}.vf span{font-size:11.5px;color:var(--zs)}
     .vf input{font:inherit;font-size:14px;padding:9px 11px;border-radius:10px;border:1px solid var(--zl);background:var(--zc);color:var(--zi);width:100%}
     .vf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .zbox{display:flex;flex-direction:column;gap:10px;padding:12px;background:var(--zf);border-radius:12px}.zbox[hidden]{display:none}
+    .zgrid{display:grid;grid-template-columns:1fr 1fr 2fr;gap:10px}
+    .zfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.zfoot small{font-size:12.5px;color:var(--zs)}
     .vfix{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--zf);border-radius:12px}.vfix b{font-size:14px}.vfix small{font-size:12px;color:var(--zs)}
     .vhint,.vfoot{font-size:11.5px;color:var(--zs);line-height:1.4;padding:0 4px}.vfoot a{color:var(--zs)}
     .vwarn,.verr{padding:9px 12px;border-radius:12px;font-size:12.5px;background:var(--zwb);border:1px solid var(--zwbd);color:var(--zwi)}
@@ -988,7 +1070,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .z3.classic h2{font-size:16px;font-weight:400}
     .z3.classic .card header{border-bottom:1px solid var(--zl);padding-bottom:10px}
     .z3.classic .seg,.z3.classic .seg button,.z3.classic .settgl,.z3.classic .ctl,.z3.classic .btn,.z3.classic .dsec,
-    .z3.classic .vb,.z3.classic .vit,.z3.classic .vrow,.z3.classic .vq,.z3.classic .vf input,.z3.classic .vfix,
+    .z3.classic .vb,.z3.classic .vit,.z3.classic .vrow,.z3.classic .vq,.z3.classic .vf input,.z3.classic .vfix,.z3.classic .zbox,
     .z3.classic .confirm,.z3.classic .confirm button,.z3.classic .vdel,.z3.classic .vwarn,.z3.classic .verr{border-radius:4px}
     .z3.classic .seg button.act,.z3.classic .settgl{color:#0B7AC2}
     .z3.classic .seg button.act{color:#0B7AC2}
@@ -1012,6 +1094,7 @@ class ZeoSonnenWallboxCard extends HTMLElement {
       .facts.f4{grid-template-columns:1fr 1fr}
       .settgl em{display:none}
       .tgls{gap:6px}.settgl{padding:10px 8px;gap:6px;font-size:13px}
+      .zgrid{grid-template-columns:1fr 1fr}.zdep{grid-column:1 / -1}
       .vf2{grid-template-columns:1fr}.vgrid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
       .vhd{grid-template-columns:70px 1fr 70px}
     }

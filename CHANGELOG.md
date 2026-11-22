@@ -3,6 +3,8 @@
 ## Unveröffentlicht
 
 ### Neu
+- **Lademodus „Ziel“** (Zielladen mit Abfahrtszeit): Kunde trägt in der Wallbox-Karte Ladestand jetzt, Ziel-% und Abfahrt ein. Regelung lädt bevorzugt mit Sonnenstrom und ergänzt aus Speicher und Netz nur, was bis 15 min vor der Abfahrt fehlt (`P = max(Überschuss, Energie rest / Zeit rest)`). Ladestand wird über den Zählerstand hochgerechnet (Ladeverluste 10 % angenommen), Fahrzeugdaten vom aktiven Fahrzeug. Ziel erreicht → Pause (0 A), zu knapp → volle Leistung. Einphasige Autos bleiben einphasig. Ohne Eingaben lädt „Ziel“ wie Eco und zeigt, was fehlt
+- Wallbox-Karte: Modus **„Aus“ wird nicht mehr angezeigt** (Anhalten über Einstellungen → Pausieren)
 - **Eigener OCPP-1.6J-Server** für den sonnenCharger 3 (Alfen Eve) auf dem HA-Port 8123: `ws://<HA-IP>:8123/api/zeo_sonnen/ocpp/` (die Box hängt ihre ID selbst an). Kein zusätzlicher Port, nur Verbindungen aus dem lokalen Netz, keine über Home Assistant Cloud
 - Verarbeitet Boot, Heartbeat, Status, Messwerte (Energie, Leistung und Strom je Phase, angebotener Strom, Spannung), Autorisierung und Ladevorgänge; setzt die Uhr der Box und merkt sich die Zeitabweichung
 - Fragt nach dem Verbinden den Status der Box ab und stellt die Messwerte ein (Energie, Strom, angebotener Strom, Leistung, Spannung alle 10 s). Geschrieben wird nur, was abweicht

@@ -26,6 +26,7 @@ class Mode(StrEnum):
     ECO_PLUS = "eco_plus"
     POWER = "power"
     MANUAL = "manual"  # set by hand in the card, the logic keeps its hands off
+    TARGET = "target"  # reach a state of charge by the departure time, surplus first
 
 
 class Reason(StrEnum):
@@ -39,6 +40,9 @@ class Reason(StrEnum):
     SOLAR = "solar"  # charging from surplus
     MINIMUM = "minimum"  # Eco+: minimum from the grid
     BATTERY_PRIORITY = "battery_priority"  # battery below threshold takes the surplus first
+    TARGET = "target"  # Ziel: surplus is not enough, the rest comes from battery/grid
+    TARGET_REACHED = "target_reached"  # Ziel: done, paused at 0 A
+    TOO_TIGHT = "too_tight"  # Ziel: even full power will not make it, charging flat out
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,25 @@ class Measurement:
     backup_buffer: float
     ev_w: float  # what the wallbox delivers right now
     in_transaction: bool  # Charging / SuspendedEV / SuspendedEVSE
+
+
+@dataclass(frozen=True)
+class Target:
+    """What mode Ziel has to deliver (worked out by the caller every cycle)."""
+
+    energy_wh: float  # still to be delivered by the wallbox (losses included)
+    seconds_left: float  # until departure minus the safety reserve
+    max_w: float  # what car and wallbox can take together
+    max_phases: int = 3  # 1 = single-phase car, never switch to three phases
+
+    @property
+    def need_w(self) -> float:
+        """Constant power that would just make it."""
+        if self.energy_wh <= 0:
+            return 0.0
+        if self.seconds_left <= 0:
+            return float("inf")
+        return self.energy_wh * 3600.0 / self.seconds_left
 
 
 @dataclass(frozen=True)
@@ -129,7 +152,8 @@ class ChargeLogic:
         self._last_switch = t
         self._cond = None
 
-    def step(self, mode: Mode, m: Measurement) -> Decision:
+    def step(self, mode: Mode, m: Measurement, target: Target | None = None) -> Decision:
+        """One control cycle. In mode TARGET without a target the logic behaves like Eco."""
         s = self.settings
         avail = self._avg(m.t, available_power(m, s))
 
@@ -157,6 +181,8 @@ class ChargeLogic:
             self._was_power_tx = True
             self.phases = 3
             return Decision(s.max_amps, 3, Reason.POWER, avail)
+        if mode == Mode.TARGET and target is not None:
+            return self._target(target, m, avail)
 
         eco_plus = mode == Mode.ECO_PLUS
         if eco_plus and self.phases == 0:
@@ -178,17 +204,52 @@ class ChargeLogic:
             reason = Reason.SOLAR
         return Decision(amps, self.phases, reason, avail)
 
+    def _target(self, tg: Target, m: Measurement, avail: float) -> Decision:
+        s = self.settings
+        top_ph = 1 if tg.max_phases == 1 else 3
+        if tg.energy_wh <= 0:
+            if self.phases:
+                self._switch(0, m.t)
+            return Decision(0, 3, Reason.TARGET_REACHED, avail)
+        need = tg.need_w
+        hold = m.t - self._tx_start < s.start_hold_s or m.t - self._last_switch < s.settle_s
+        if need >= 0.98 * tg.max_w:
+            # Zu knapp: straight to full power, no hysteresis
+            if self.phases != top_ph and not (self.phases and hold):
+                self._switch(top_ph, m.t)
+            ph = self.phases or top_ph
+            return Decision(self._cap(tg.max_w, ph, tg), ph, Reason.TOO_TIGHT, avail)
+        p = max(avail, need)
+        if not hold:
+            self._transition(p, m.t, False, allow_3p=top_ph == 3)
+        if self.phases == 3 and top_ph == 1:
+            self._switch(1, m.t)
+        if self.phases == 0:
+            reason = Reason.BATTERY_PRIORITY if self._battery_first(m) else Reason.WAITING
+            return Decision(0, 3, reason, avail)
+        amps = self._cap(p, self.phases, tg)
+        if hold:
+            reason = Reason.STARTING if m.t - self._tx_start < s.start_hold_s else Reason.SETTLING
+        else:
+            reason = Reason.TARGET if need > avail else Reason.SOLAR
+        return Decision(amps, self.phases, reason, avail)
+
+    def _cap(self, power_w: float, phases: int, tg: Target) -> int:
+        """Amps for power_w, never more than car and wallbox take."""
+        a = amps_for(min(power_w, tg.max_w), phases, self.settings)
+        return max(MIN_AMPS, min(a, int(tg.max_w // (VOLTAGE * phases)) or MIN_AMPS))
+
     def _battery_first(self, m: Measurement) -> bool:
         return m.battery_w < -100 and m.usoc < self.settings.battery_priority_soc
 
-    def _transition(self, avail: float, t: float, eco_plus: bool) -> None:
+    def _transition(self, avail: float, t: float, eco_plus: bool, allow_3p: bool = True) -> None:
         s = self.settings
         can_change_phase = t - self._last_phase_change >= s.phase_switch_gap_s
         if self.phases == 0:
             if self._held("start" if avail >= s.start_1p_w else None, t, s.start_1p_s):
                 self._switch(1, t)
         elif self.phases == 1:
-            if avail >= s.up_3p_w and can_change_phase:
+            if avail >= s.up_3p_w and can_change_phase and allow_3p:
                 if self._held("up", t, s.up_3p_s):
                     self._switch(3, t)
             elif avail < s.pause_w and not eco_plus:
