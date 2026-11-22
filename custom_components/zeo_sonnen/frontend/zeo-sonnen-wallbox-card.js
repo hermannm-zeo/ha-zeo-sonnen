@@ -18,7 +18,7 @@
  *   entities:   einzelne Entitäten überschreiben, z. B. { power: sensor.xyz }
  */
 const ZW_TAG = "zeo-sonnen-wallbox-card";
-const ZW_VERSION = "0.7.0-dev4";
+const ZW_VERSION = "0.7.0-dev5";
 
 const ZK = {
   ev: "#9BD62A", ev2: "#6FAE12", petrol: "#0E3A43",
@@ -583,10 +583,14 @@ class ZeoSonnenWallboxCard extends HTMLElement {
         if (v) this._vw = { view: "form", back: { view: "list" }, f: { ...v }, fromCat: !!v.catalog_id };
       } else if (act === "formback") this._vw = w.back || { view: "list" };
       else if (act === "ph") { this._vehReadForm(); w.f.phases = Number(d.p); }
-      else if (act === "use") { this._veh = await this._vehWS("activate", { vehicle_id: d.id }); this._vehSum(); }
+      else if (act === "delno") { w.confirmDel = null; clearTimeout(this._delT); }
+      else if (act === "use") { w.confirmDel = null; this._veh = await this._vehWS("activate", { vehicle_id: d.id }); this._vehSum(); }
       else if (act === "del") {
-        if (w.confirmDel !== d.id) { w.confirmDel = d.id; }
-        else { this._veh = await this._vehWS("delete", { vehicle_id: d.id }); w.confirmDel = null; this._vehSum(); if (!this._veh.vehicles.length) this._vw = { view: "brand" }; }
+        if (w.confirmDel !== d.id) {
+          w.confirmDel = d.id;
+          clearTimeout(this._delT);  // Rückfrage verschwindet nach 8 s von selbst
+          this._delT = setTimeout(() => { if (this._vw === w && w.confirmDel === d.id) { w.confirmDel = null; this._vehRender(); } }, 8000);
+        } else { this._veh = await this._vehWS("delete", { vehicle_id: d.id }); w.confirmDel = null; this._vehSum(); if (!this._veh.vehicles.length) this._vw = { view: "brand" }; }
       } else if (act === "save") { await this._vehSave(); return; }
       else return;
     } catch (e) {
@@ -649,8 +653,11 @@ class ZeoSonnenWallboxCard extends HTMLElement {
             <button class="vsel" data-act="use" data-id="${zesc(v.id)}" aria-pressed="${act}"><i></i><span><b>${zesc(v.name)}</b>
               <small>${zesc([v.variant, this._vehYears(v.years)].filter(Boolean).join(" · "))}</small>
               <small>${zesc(this._vehSpec(v.capacity_kwh, v.ac_kw, v.phases))}</small></span></button>
-            <div class="vbtns"><button class="btn" data-act="edit" data-id="${zesc(v.id)}">Ändern</button>
-              <button class="btn ${w.confirmDel === v.id ? "warn" : ""}" data-act="del" data-id="${zesc(v.id)}">${w.confirmDel === v.id ? "Wirklich entfernen?" : "Entfernen"}</button></div>
+            ${w.confirmDel === v.id
+              ? `<div class="vdel"><span>${zesc(v.name)} entfernen?</span><div class="vbtns"><button class="btn" data-act="delno">Abbrechen</button>
+                <button class="btn warn" data-act="del" data-id="${zesc(v.id)}">Entfernen</button></div></div>`
+              : `<div class="vbtns"><button class="btn" data-act="edit" data-id="${zesc(v.id)}">Ändern</button>
+                <button class="btn" data-act="del" data-id="${zesc(v.id)}">Entfernen</button></div>`}
           </div>`;
         }).join("")}</div>
         <button class="btn add" data-act="add">+ Fahrzeug hinzufügen</button>
@@ -943,7 +950,8 @@ class ZeoSonnenWallboxCard extends HTMLElement {
     .vsel{display:flex;gap:12px;align-items:center;font:inherit;text-align:left;background:none;border:0;color:var(--zi);cursor:pointer;padding:0;flex:1;min-width:180px}
     .vsel i{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid var(--zd)}.vrow.act .vsel i{border-color:${ZK.ev2};background:radial-gradient(circle,${ZK.ev2} 45%,transparent 50%)}
     .vsel span{display:flex;flex-direction:column;gap:2px}.vsel b{font-size:14px;font-weight:600}.vsel small{font-size:12px;color:var(--zs)}
-    .vbtns{display:flex;gap:6px}.btn.warn{border-color:${ZK.err};color:${ZK.err}}.btn.add{align-self:flex-start}
+    .vbtns{display:flex;gap:6px}
+    .vdel{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;width:100%;padding:8px 10px;border-radius:10px;background:var(--zwb);border:1px solid var(--zwbd);font-size:13px;color:var(--zwi)}.btn.warn{border-color:${ZK.err};color:${ZK.err}}.btn.add{align-self:flex-start}
     .btn.yes{background:${ZK.petrol};border-color:${ZK.petrol};color:#fff;font-weight:600}
     .vform{display:flex;flex-direction:column;gap:10px}
     .vf{display:flex;flex-direction:column;gap:4px;min-width:0}.vf span{font-size:11.5px;color:var(--zs)}
