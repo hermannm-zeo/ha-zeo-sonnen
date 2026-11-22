@@ -1,6 +1,7 @@
 """ZEO Lademanager – Testaufbau auf HA Zeo (pyscript).
 
-Regelt den sonnenCharger 3 über die OCPP-Integration nach charge_logic.py aus zeo_sonnen.
+Regelt den sonnenCharger 3 über den OCPP-Server von zeo_sonnen (Aktion zeo_sonnen.wallbox_set_limit)
+nach charge_logic.py aus zeo_sonnen.
 Später zieht das in die Integration selbst um; bis dahin läuft es hier ohne HA-Neustart.
 
 Helfer (UI): input_select.wallbox_lademodus, input_boolean.wallbox_trockenlauf,
@@ -14,23 +15,23 @@ Ausgabe:     sensor.wallbox_lademanager (Grund + Klartext), sensor.wallbox_pv_ue
 import json
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from custom_components.zeo_sonnen.charge_logic import ChargeLogic, Measurement, Mode, Settings, Target
 
-CHARGER = "sonnencharger"
+CHARGER = "ACE0871215"  # Ladepunkt-ID am OCPP-Server von zeo_sonnen
 MAX_AMPS = 16  # Zuleitung B16
 E = {
     "grid": "sensor.controlroom_sonnenbatterie_netzleistung",  # HA: + Bezug, - Einspeisung
     "bat": "sensor.controlroom_sonnenbatterie_batterieleistung",  # + Entladen, - Laden
     "soc": "sensor.controlroom_sonnenbatterie_ladestand",
     "buffer": "number.controlroom_sonnenbatterie_notstrompuffer",
-    "ev": "sensor.sonnencharger_power_active_import",  # kW
-    "status": "sensor.sonnencharger_status_connector",
+    "ev": "sensor.wallbox_leistung",  # W (Einheit wird geprüft)
+    "status": "sensor.wallbox_status",
     "mode": "input_select.wallbox_lademodus",
     "dry": "input_boolean.wallbox_trockenlauf",
     "prio": "input_number.wallbox_batterievorrang_bis",
-    "meter": "sensor.sonnencharger_energy_active_import_register",  # kWh, Zählerstand
+    "meter": "sensor.wallbox_zahlerstand",  # kWh, im Leerlauf unknown (Alfen sendet dann keine Messwerte)
     "soc_car": "input_number.wallbox_ladestand_auto",
     "soc_goal": "input_number.wallbox_ziel_ladestand",
     "departure": "input_datetime.wallbox_abfahrt",
@@ -49,15 +50,19 @@ VEHICLES = "/config/.storage/zeo_sonnen.vehicles"
 ETA = 0.9  # Ladeverluste AC (Annahme), Energie an der Wallbox = Energie in den Akku / ETA
 RESERVE_S = 900  # Ziel 15 min vor der Abfahrt erreichen
 IN_TX = ("Charging", "SuspendedEV", "SuspendedEVSE")
-VALID_S = 300  # Profil läuft nach 5 min ab, wenn HA nicht erneuert (Ausfallschutz)
+VALID_MIN = 5  # Profil läuft nach 5 min ab, wenn HA nicht erneuert (Ausfallschutz)
 RENEW_S = 60
 
 _logic = ChargeLogic(settings=Settings(max_amps=MAX_AMPS))
 _last = {"amps": None, "phases": None, "t": 0.0, "error": ""}
-_veh = {"mtime": None, "data": None, "checked": 0.0}
+_veh = {"mtime": None, "data": None, "checked": float("-inf")}
 _tx = {"prev": None}
 
-state.persist(BASIS, default_value=0, default_attributes={"input_ts": 0, "soc_in": None, "last_tx_end": 0})
+state.persist(
+    BASIS,
+    default_value=0,
+    default_attributes={"input_ts": 0, "soc_in": None, "last_tx_end": 0, "base_ok": False},
+)
 
 
 @pyscript_compile
@@ -91,10 +96,17 @@ def _vehicle():
 def zeo_lademanager_soc_input(value=None):
     """Neuer Ladestand eingegeben: Zählerstand als Basis der Hochrechnung merken."""
     attrs = state.getattr(BASIS) or {}
+    meter = _num(E["meter"], None)
+    # Zählerstand fehlt (Leerlauf): Basis wird beim ersten gültigen Wert gesetzt, siehe _ziel
     state.set(
         BASIS,
-        value=_num(E["meter"], 0.0),
-        new_attributes={**attrs, "input_ts": time.time(), "soc_in": _num(E["soc_car"], None)},
+        value=meter if meter is not None else 0,
+        new_attributes={
+            **attrs,
+            "input_ts": time.time(),
+            "soc_in": _num(E["soc_car"], None),
+            "base_ok": meter is not None,
+        },
     )
 
 
@@ -124,8 +136,12 @@ def _ziel(veh):
     cap = float(veh.get("capacity_kwh") or 0)
     goal = _num(E["soc_goal"], 80.0)
     meter = _num(E["meter"], None)
+    if meter is not None and not attrs.get("base_ok"):
+        state.set(BASIS, value=meter, new_attributes={**attrs, "base_ok": True})
+        attrs = state.getattr(BASIS) or {}
     base = _num(BASIS, 0.0)
-    charged = max(0.0, meter - base) if meter is not None and meter >= base else 0.0
+    ok = attrs.get("base_ok") and meter is not None and meter >= base
+    charged = meter - base if ok else 0.0
     soc_now = min(100.0, soc_in + charged * ETA / cap * 100) if cap else soc_in
     energy_wh = max(0.0, goal - soc_now) / 100 * cap / ETA * 1000
     ph = 1 if int(veh.get("phases") or 3) == 1 else 3
@@ -169,19 +185,11 @@ def _de(x, d=1):
     return f"{x:.{d}f}".replace(".", ",")
 
 
-def _profile(amps, phases):
-    valid_to = (datetime.now(timezone.utc) + timedelta(seconds=VALID_S)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
-        "chargingProfileId": 101,
-        "stackLevel": 1,
-        "chargingProfilePurpose": "TxDefaultProfile",
-        "chargingProfileKind": "Relative",
-        "validTo": valid_to,
-        "chargingSchedule": {
-            "chargingRateUnit": "A",
-            "chargingSchedulePeriod": [{"startPeriod": 0, "limit": amps, "numberPhases": phases}],
-        },
-    }
+def _ev_w():
+    """Ladeleistung in W, auch wenn die Anzeige auf kW umgestellt ist."""
+    w = _num(E["ev"])
+    unit = (state.getattr(E["ev"]) or {}).get("unit_of_measurement")
+    return w * 1000 if unit == "kW" else w
 
 
 _NO_TARGET = {
@@ -259,7 +267,7 @@ def zeo_lademanager_tick():
         battery_w=_num(E["bat"]),
         usoc=soc,
         backup_buffer=_num(E["buffer"]),
-        ev_w=_num(E["ev"]) * 1000 if st == "Charging" else 0.0,
+        ev_w=_ev_w() if st == "Charging" else 0.0,
         in_transaction=in_tx,
     )
     if _tx["prev"] and not in_tx:  # Ladevorgang beendet: alter Ladestand gilt nicht mehr
@@ -281,7 +289,15 @@ def zeo_lademanager_tick():
         changed = _last["amps"] is None or abs(d.amps - _last["amps"]) >= 1 or d.phases != _last["phases"]
         if changed or now - _last["t"] >= RENEW_S:
             try:
-                ocpp.set_charge_rate(devid=CHARGER, conn_id=1, custom_profile=_profile(d.amps, d.phases))
+                service.call(
+                    "zeo_sonnen",
+                    "wallbox_set_limit",
+                    blocking=True,
+                    charge_point_id=CHARGER,
+                    current=d.amps,
+                    phases=d.phases,
+                    valid_for=VALID_MIN,
+                )
                 _last.update({"amps": d.amps, "phases": d.phases, "t": now, "error": ""})
             except Exception as err:
                 _last["error"] = str(err)
